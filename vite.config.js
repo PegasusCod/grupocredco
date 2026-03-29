@@ -19,12 +19,12 @@ export default defineConfig({
       // "@components": path.resolve(__dirname, "resources/js/Components"),
     },
   },
-/*   server: {
+  server: {
         host: "0.0.0.0",
         port: 5173,
         cors: true,
         hmr: {
-            host: "10.42.241.197",
+            host: "192.168.1.170",
         },
-    }, */
+    },
 })

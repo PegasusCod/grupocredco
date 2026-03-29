@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
+import { NavProjects } from "./nav-projects"
 import { NavUser } from "@/components/nav-user"
 import { TeamSwitcher } from "@/components/team-switcher"
 import {
@@ -25,8 +26,6 @@ import {
   SidebarGroupContent,
 } from "@/components/ui/sidebar"
 
-// agregamos el calendario
-import { Calendar } from "@/Components/ui/calendar"
 
 // This is sample data.
 const data = {
@@ -52,26 +51,19 @@ const data = {
       plan: "Free",
     },
   ],
+
   navMain: [
     {
-      title: "Panel",
+      title: "Entrega de EPP",
       url: "#",
       isActive: true,
-      icon: Frame,
+      icon: Bot,
       items: [
         {
           title: "Dashboard",
           url: "/dashboard",
           icon: Frame,
         },
-      ],
-
-    },
-    {
-      title: "Personal",
-      url: "#",
-      icon: Bot,
-      items: [
         {
           title: "Trabajadores",
           url: route('trabajadores.index'), // Aquí se puede usar route('trabajadores.index') si tienes esa ruta nombrada
@@ -83,13 +75,6 @@ const data = {
           icon: BookOpen,
           active: route().current('entregas.index') // Marca como activo si la ruta actual es 'entregas.index'
         },
-      ],
-    },
-    {
-      title: "Inventario",
-      url: "#",
-      icon: BookOpen,
-      items: [
         {
           title: "EPP Disponibles",
           url: route('epp.index'), // Aquí se usa la función route() para generar la URL
@@ -102,19 +87,68 @@ const data = {
           icon: AudioWaveform,
           active: route().current('inventario.index') // Marca como activo si la ruta actual es 'inventario.index'
         },
-      ],
-    },
-    {
-      title: "Reportes",
-      url: "#",
-      icon: SquareTerminal,
-      items: [
         {
           title: "Reportes de Entregas",
           url: "#",
         },
       ],
     },
+    {
+      title: "Entrega de herrramientas",
+      icon: PieChart,
+      items:[
+        {
+          title: "Dashboard",
+          url:"#",
+        },
+        {
+          title: "Inventario",
+          url: "#"
+        },
+        { title:"Prestamos",
+          url:"#",
+        },
+        { title:"Devoluciones",
+          url:"#",
+        },
+        { title:"Resportes de herramientas",
+          url:"#",
+        }
+      ],
+    },
+  ],
+
+  projects: [
+    {
+      name:"Entrega de EPP",
+      url: route('entregas.index'), // Aquí se puede usar route('entregas.index') si tienes esa ruta nombrada
+      icon: Frame,
+    },
+    {
+      name:"Salida de Herramientas",
+      url:"#",
+      icon: PieChart,
+    },
+    {
+      name:"Registrar Devoluciones",
+      url:"#",
+      icon: Map,
+    },
+/*     {
+      name:"",
+      url:"#",
+      icon: Bot,
+    },
+    {
+      name:"",
+      url:"#",
+      icon: AudioWaveform,
+    },
+    {
+      name:"",
+      url:"#",
+      icon: SquareTerminal,
+    }, */
   ],
 }
 
@@ -129,16 +163,10 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
+        <NavProjects projects={data.projects} />
       </SidebarContent>
       <SidebarGroup className="mt-auto">
-        {/* <SidebarGroupContent className="flex justify-center p-2">
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={setDate}
-            className="rounded-md border bg-white shadow-sm scale-90 origin-top"
-          />
-        </SidebarGroupContent> */}
+
       </SidebarGroup>
       <SidebarFooter>
         <NavUser user={data.user} />
