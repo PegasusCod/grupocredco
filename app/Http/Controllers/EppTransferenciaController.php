@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
-class TranferenciaController extends Controller
+class EppTransferenciaController extends Controller
 {
     /**
      * Display a listing of the resource.
