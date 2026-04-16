@@ -3,65 +3,63 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
-use App\Models\Entrega;
-use App\Models\EntregaDetalle;
 
 class Trabajador extends Model
 {
-    use HasFactory;
-
     protected $table = 'trabajadores';
 
     protected $fillable = [
+        'proyecto_id',
+        'cargo_laboral_id',
         'codigo_fotocheck',
         'dni',
         'nombres',
         'apellidos',
         'correo',
         'telefono',
-        'cargo_id',
+        'fecha_cump',
         'fecha_ingreso',
-        'area',
+        'fecha_cese',
         'estado',
-        'foto'
+        'foto_url',
     ];
 
-    public function cargo()
+    protected $casts = [
+        'fecha_cump' => 'date',
+        'fecha_ingreso' => 'date',
+        'fecha_cese' => 'date',
+        /* 'estado' => 'boolean', */
+    ];
+
+    public function proyecto(): BelongsTo
     {
-        return $this->belongsTo(Cargo::class, 'cargo_id');
+        return $this->belongsTo(Proyecto::class);
     }
 
-    public function entregas()
+    public function cargoLaboral(): BelongsTo
     {
-        return $this->hasMany(Entrega::class, 'trabajador_id');
+        return $this->belongsTo(CargoLaboral::class);
     }
 
-    public function entregaDetalles(): HasManyThrough
+    public function custodias(): HasMany
     {
-        return $this->hasManyThrough(
-            \App\Models\EntregaDetalle::class,
-            \App\Models\Entrega::class,
-            'trabajador_id',
-            'entrega_id',
-            'id',
-            'id'
-        );
+        return $this->hasMany(TrabajadorEppCustodia::class);
     }
 
-    public function getNombreCompletoAttribute()
+    public function entregas(): HasMany
+    {
+        return $this->hasMany(EppEntrega::class);
+    }
+
+    public function incidencias(): HasMany
+    {
+        return $this->hasMany(IncidenciaEpp::class);
+    }
+
+    public function getNombreCompletoAttribute(): string
     {
         return "{$this->nombres} {$this->apellidos}";
-    }
-
-    public function getFotoUrlAttribute()
-    {
-        if ($this->foto && Storage::disk('public')->exists($this->foto)) {
-            return Storage::url($this->foto);
-        }
-        return null;
     }
 }

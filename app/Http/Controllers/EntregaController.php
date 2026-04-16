@@ -2,23 +2,28 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\Entrega;
-use App\Models\EppInventarioTalla;
-use App\Models\EppItem;
+use App\Models\Almacen;
+use App\Models\EppEntrega;
+use App\Models\EppEntregaDetalle;
+use App\Models\EppSku;
+use App\Models\MovimientoEpp;
+use App\Models\MovimientoTipo;
+use App\Models\StockAlmacen;
 use App\Models\Trabajador;
-use Inertia\Inertia;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\ValidationException;
+use App\Models\TrabajadorEppCustodia;
 use Carbon\Carbon;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class EntregaController extends Controller
 {
     public function index(Request $request)
     {
-        $this->asegurarInventarioUnicoParaEppsSinTalla();
-
         $search = $request->input('search');
         $year   = (int) $request->input('year', now()->year);
 
@@ -27,146 +32,169 @@ class EntregaController extends Controller
 
         if ($search) {
             $trabajador = Trabajador::with([
-                'cargo',
-                'entregas' => function ($query) use ($year) {
-                    $query->with('usuario')
-                          ->whereYear('fecha', $year)
-                          ->orderBy('fecha', 'asc');
-                },
-                'entregas.detalles.eppTalla.item',
+                'cargoLaboral:id,nombre',
+                'proyecto:id,nombre',
+                'entregas' => fn ($q) =>
+                    $q->with('user:id,name')
+                      ->where('estado', 'CONFIRMADO')
+                      ->whereYear('fecha_entrega', $year)
+                      ->orderBy('fecha_entrega'),
+                'entregas.detalles.sku.item:id,nombre',
+                'entregas.detalles.sku.talla:id,codigo,nombre',
             ])
                 ->where('codigo_fotocheck', $search)
                 ->first();
 
             if ($trabajador) {
                 $historial = collect($trabajador->entregas)
-                    ->flatMap(function ($entrega) {
-                        return $entrega->detalles->map(function ($detalle) use ($entrega) {
-                            return [
-                                'epp'            => $detalle->eppTalla?->item?->nombre ?? 'EPP sin nombre',
-                                'fecha'          => $entrega->fecha
-                                    ? Carbon::parse($entrega->fecha)->format('Y-m-d')
-                                    : null,
-                                'motivo'         => $detalle->motivo,
-                                'cantidad'       => (int) ($detalle->cantidad ?? 1),
-                                'observaciones'  => $entrega->observaciones,
-                                'registrado_por' => $entrega->usuario?->name ?? null,
-                            ];
-                        });
-                    })
+                    ->flatMap(fn ($entrega) =>
+                        $entrega->detalles->map(fn ($det) => [
+                            'epp'            => $det->sku?->item?->nombre ?? 'EPP sin nombre',
+                            'talla'          => $det->sku?->talla?->codigo ?? 'UNICA',
+                            'fecha'          => Carbon::parse($entrega->fecha_entrega)->format('Y-m-d'),
+                            'motivo'         => $det->motivo_entrega,
+                            'cantidad'       => (int) $det->cantidad,
+                            'observaciones'  => $entrega->observaciones,
+                            'registrado_por' => $entrega->user?->name,
+                        ])
+                    )
                     ->groupBy('epp')
-                    ->map(function ($grupo, $nombreEpp) {
-                        return [
-                            'epp'     => $nombreEpp,
-                            'cambios' => $grupo->map(fn ($c) => [
-                                'fecha'          => $c['fecha'],
-                                'motivo'         => $c['motivo'],
-                                'cantidad'       => $c['cantidad'],
-                                'observaciones'  => $c['observaciones'],
-                                'registrado_por' => $c['registrado_por'],
-                            ])->values(),
-                            'total' => $grupo->sum('cantidad'),
-                        ];
-                    })
+                    ->map(fn ($grupo, $nombreEpp) => [
+                        'epp'     => $nombreEpp,
+                        'cambios' => $grupo->map(fn ($c) => [
+                            'fecha'          => $c['fecha'],
+                            'talla'          => $c['talla'],
+                            'motivo'         => $c['motivo'],
+                            'cantidad'       => $c['cantidad'],
+                            'observaciones'  => $c['observaciones'],
+                            'registrado_por' => $c['registrado_por'],
+                        ])->values(),
+                        'total' => $grupo->sum('cantidad'),
+                    ])
                     ->values();
             }
         }
 
-        $items = EppItem::with([
-            'tallas' => function ($query) {
-                $query->where('stock_actual', '>', 0)
-                    ->orderByRaw("CASE WHEN talla REGEXP '^[0-9]+$' THEN 0 ELSE 1 END")
-                    ->orderByRaw("CAST(talla AS UNSIGNED)")
-                    ->orderBy('talla');
-            }
+        $skusDisponibles = EppSku::with([
+            'item' => fn ($q) => $q->where('activo', true)->with('categoria:id,nombre'),
+            'talla:id,codigo,nombre',
+            'stocks' => fn ($q) =>
+                $q->where('estado_stock', 'DISPONIBLE')
+                  ->where('cantidad_actual', '>', 0)
+                  ->with('almacen:id,nombre,proyecto_id'),
         ])
-            ->whereHas('tallas', fn ($q) => $q->where('stock_actual', '>', 0))
-            ->orderBy('nombre')
+            ->whereHas('stocks', fn ($q) =>
+                $q->where('estado_stock', 'DISPONIBLE')->where('cantidad_actual', '>', 0)
+            )
+            ->whereHas('item', fn ($q) => $q->where('activo', true))
             ->get()
-            ->map(function (EppItem $item) {
-                $tallasDisponibles = $item->tallas->values();
-                $usaTallas         = (bool) $item->usa_tallas;
-                $filaUnica         = !$usaTallas ? $tallasDisponibles->first() : null;
-
-                return [
-                    'id'                     => $item->id,
-                    'nombre'                 => $item->nombre,
-                    'usa_tallas'             => $usaTallas,
-                    'stock_total_disponible' => $usaTallas
-                        ? (int) $tallasDisponibles->sum('stock_actual')
-                        : (int) optional($filaUnica)->stock_actual,
-                    'inventario_unico_id'    => $filaUnica?->id,
-                    'tallas'                 => $usaTallas
-                        ? $tallasDisponibles->map(fn ($inv) => [
-                            'id'           => $inv->id,
-                            'talla'        => $inv->talla,
-                            'stock_actual' => (int) $inv->stock_actual,
-                        ])->values()
-                        : [],
-                ];
-            })
+            ->map(fn (EppSku $sku) => [
+                'sku_id'        => $sku->id,
+                'epp_item_id'   => $sku->epp_item_id,
+                'nombre'        => $sku->item?->nombre,
+                'categoria'     => $sku->item?->categoria?->nombre,
+                'usa_tallas'    => (bool) $sku->item?->usa_tallas,
+                'talla_id'      => $sku->talla_id,
+                'talla'         => $sku->talla?->codigo ?? 'UNICA',
+                'talla_nombre'  => $sku->talla?->nombre ?? 'Única',
+                'stocks'        => $sku->stocks->map(fn ($s) => [
+                    'almacen_id'      => $s->almacen_id,
+                    'almacen_nombre'  => $s->almacen?->nombre,
+                    'cantidad_actual' => $s->cantidad_actual,
+                ])->values(),
+            ])
             ->values();
 
         $years = range(now()->year, now()->year - 5);
 
         return Inertia::render('Entregas/Index', [
-            'trabajador' => $trabajador,
-            'items'      => $items,
-            'historial'  => $historial,
-            'years'      => $years,
-            'filters'    => ['search' => $search, 'year' => $year],
+            'trabajador'      => $trabajador,
+            'skusDisponibles' => $skusDisponibles,
+            'historial'       => $historial,
+            'years'           => $years,
+            'filters'         => ['search' => $search, 'year' => $year],
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
         $request->validate([
-            'trabajador_id'        => 'required|exists:trabajadores,id',
-            'observaciones'        => 'nullable|string',
-            'items'                => 'required|array|min:1',
-            'items.*.epp_item_id'  => 'required|exists:epp_items,id',
-            'items.*.epp_talla_id' => 'required|exists:epp_inventario_tallas,id',
-            'items.*.cantidad'     => 'required|integer|min:1',
-            'items.*.motivo'       => 'required|string|in:Personal Nuevo,Desgaste,Perdida',
+            'trabajador_id'          => 'required|exists:trabajadores,id',
+            'almacen_origen_id'      => 'required|exists:almacenes,id',
+            'observaciones'          => 'nullable|string',
+            'items'                  => 'required|array|min:1',
+            'items.*.epp_sku_id'     => 'required|exists:epp_skus,id',
+            'items.*.cantidad'       => 'required|integer|min:1',
+            'items.*.motivo_entrega' => 'required|in:INICIAL,REPOSICION_DESGASTE,REPOSICION_PERDIDA',
         ]);
 
         DB::transaction(function () use ($request) {
-            $entrega = Entrega::create([
+            $trabajador = Trabajador::findOrFail($request->trabajador_id);
+            $tipoSalida = MovimientoTipo::where('codigo', 'ENTREGA_TRABAJADOR')->firstOrFail();
+
+            $entrega = EppEntrega::create([
+                'fecha_entrega'     => now(),
                 'trabajador_id'     => $request->trabajador_id,
-                'registrado_por_id' => Auth::id(),
+                'proyecto_id'       => $trabajador->proyecto_id,
+                'almacen_origen_id' => $request->almacen_origen_id,
                 'observaciones'     => $request->observaciones,
-                'fecha'             => now(),
+                'estado'            => 'CONFIRMADO',
+                'user_id'           => Auth::id(),
             ]);
 
             foreach ($request->items as $index => $item) {
-                $cantidad   = (int) $item['cantidad'];
-                $inventario = EppInventarioTalla::with('item')
-                    ->lockForUpdate()
-                    ->findOrFail($item['epp_talla_id']);
+                $cantidad = (int) $item['cantidad'];
 
-                if ((int) $inventario->epp_item_id !== (int) $item['epp_item_id']) {
+                $stock = StockAlmacen::where([
+                    'almacen_id'   => $request->almacen_origen_id,
+                    'epp_sku_id'   => $item['epp_sku_id'],
+                    'estado_stock' => 'DISPONIBLE',
+                ])->lockForUpdate()->first();
+
+                if (!$stock || $stock->cantidad_actual < $cantidad) {
                     throw ValidationException::withMessages([
-                        "items.$index.epp_talla_id" => "La talla seleccionada no pertenece al EPP elegido.",
+                        "items.$index.cantidad" => 'Stock insuficiente para este EPP en el almacén seleccionado.',
                     ]);
                 }
 
-                if ((int) $inventario->stock_actual < $cantidad) {
-                    throw ValidationException::withMessages([
-                        "items.$index.cantidad" => "No hay stock suficiente para este EPP.",
-                    ]);
-                }
+                $saldoAnterior = $stock->cantidad_actual;
+                $stock->decrement('cantidad_actual', $cantidad);
 
-                $entrega->detalles()->create([
-                    'epp_talla_id' => $inventario->id,
-                    'cantidad'     => $cantidad,
-                    'motivo'       => $item['motivo'],
+                $detalle = EppEntregaDetalle::create([
+                    'entrega_id'     => $entrega->id,
+                    'epp_sku_id'     => $item['epp_sku_id'],
+                    'cantidad'       => $cantidad,
+                    'motivo_entrega' => $item['motivo_entrega'],
+                    'observaciones'  => $item['observaciones'] ?? null,
                 ]);
 
-                $inventario->decrement('stock_actual', $cantidad);
+                $movSalida = MovimientoEpp::create([
+                    'fecha_movimiento'   => $entrega->fecha_entrega,
+                    'almacen_id'         => $request->almacen_origen_id,
+                    'proyecto_id'        => $trabajador->proyecto_id,
+                    'trabajador_id'      => $request->trabajador_id,
+                    'epp_sku_id'         => $item['epp_sku_id'],
+                    'tipo_movimiento_id' => $tipoSalida->id,
+                    'naturaleza'         => 'SALIDA',
+                    'estado_stock'       => 'DISPONIBLE',
+                    'cantidad'           => $cantidad,
+                    'saldo_anterior'     => $saldoAnterior,
+                    'saldo_nuevo'        => $stock->cantidad_actual,
+                    'documento_tipo'     => 'ENTREGA',
+                    'documento_id'       => $entrega->id,
+                    'user_id'            => Auth::id(),
+                ]);
 
-                if ($inventario->item) {
-                    $inventario->item()->decrement('stock_total', $cantidad);
-                }
+                $detalle->update(['movimiento_salida_id' => $movSalida->id]);
+
+                TrabajadorEppCustodia::create([
+                    'trabajador_id'      => $request->trabajador_id,
+                    'entrega_detalle_id' => $detalle->id,
+                    'epp_sku_id'         => $item['epp_sku_id'],
+                    'cantidad_entregada' => $cantidad,
+                    'fecha_entrega'      => $entrega->fecha_entrega,
+                    'estado'             => 'ACTIVO',
+                ]);
             }
         });
 
@@ -179,31 +207,31 @@ class EntregaController extends Controller
     }
 
     public function create() {}
-    public function show(string $id) {}
-    public function edit(string $id) {}
-    public function update(Request $request, string $id) {}
-    public function destroy(string $id) {}
 
-    private function asegurarInventarioUnicoParaEppsSinTalla(): void
+
+
+    public function show(EppEntrega $entrega): Response
     {
-        EppItem::with('tallas:id,epp_item_id,talla,stock_actual')
-            ->where('usa_tallas', false)
-            ->get()
-            ->each(function (EppItem $item) {
-                $primeraFila = $item->tallas->sortBy('id')->first();
+        $entrega->load([
+            'trabajador.proyecto',
+            'trabajador.cargoLaboral',
+            'almacenOrigen',
+            'detalles.sku.item',
+            'detalles.sku.talla',
+            'detalles.custodia',
+            'user',
+        ]);
 
-                if (!$primeraFila) {
-                    $item->tallas()->create([
-                        'talla'        => 'Única',
-                        'stock_actual' => (int) $item->stock_total,
-                    ]);
-                    return;
-                }
-
-                $primeraFila->update([
-                    'talla'        => 'Única',
-                    'stock_actual' => (int) $item->stock_total,
-                ]);
-            });
+        return Inertia::render('Entregas/Show', [
+            'entrega' => $entrega,
+        ]);
     }
+    public function edit(string $id) {}
+
+
+    public function update(Request $request, string $id) {}
+
+
+
+    public function destroy(string $id) {}
 }

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class EppItem extends Model
@@ -10,29 +11,27 @@ class EppItem extends Model
     protected $table = 'epp_items';
 
     protected $fillable = [
+        'categoria_id',
         'nombre',
         'marca',
-        'categoria',
         'unidad_medida',
         'usa_tallas',
-        'stock_total',
-        'stock_minimo',
+        'vida_util_meses',
         'imagen_url',
+        'activo',
     ];
+
     protected $casts = [
         'usa_tallas' => 'boolean',
-        'stock_total' => 'integer',
-        'stock_minimo' => 'integer',
+        'activo' => 'boolean',
     ];
-    /* un epp tiene muchas tallas y variantes */
 
-    public function tallas(): HasMany
+    public function categoria(): BelongsTo
     {
-        return $this->hasMany(EppInventarioTalla::class, 'epp_item_id');
+        return $this->belongsTo(EppCategoria::class, 'categoria_id');   
     }
-
-    public function ingresoDetalles(): HasMany
+    public function skus(): HasMany
     {
-        return $this->hasMany(EppIngresoDetalle::class, 'epp_item_id');
+        return $this->hasMany(EppSku::class);
     }
 }

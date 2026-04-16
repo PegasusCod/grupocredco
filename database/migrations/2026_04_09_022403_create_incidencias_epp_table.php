@@ -27,8 +27,6 @@ return new class extends Migration
             ]);
             $table->integer('cantidad')->default(1);
             $table->boolean('genera_reposicion')->default(true);
-            $table->boolean('genera_cargo')->default(false);
-            $table->decimal('monto_cargo', 10, 2)->nullable();
             $table->text('descripcion')->nullable();
             $table->enum('estado', ['REGISTRADA', 'ATENDIDA', 'CERRADA'])->default('REGISTRADA');
             $table->foreignId('user_id')->constrained('users');

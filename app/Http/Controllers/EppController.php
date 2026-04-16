@@ -2,7 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Almacen;
+use App\Models\EppCategoria;
 use App\Models\EppItem;
+use App\Models\EppSku;
+use App\Models\StockAlmacen;
+use App\Models\Talla;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,26 +23,34 @@ class EppController extends Controller
      */
     public function index(): Response
     {
-        // Normaliza EPP antiguos sin talla para que tengan fila "Única"
-        $this->asegurarInventarioUnicoParaEppsSinTalla();
-
         $epps = EppItem::with([
-            'tallas' => fn($query) => $query->orderBy('talla'),
+            'categoria',
+            'skus' => fn ($q) => $q->with('talla', 'stocks'),
         ])
+            ->where('activo', true)
             ->orderBy('nombre')
             ->get()
-            ->map(fn(EppItem $item) => $this->mapEpp($item))
+            ->map(fn (EppItem $item) => $this->mapEpp($item))
             ->values();
 
-        $categorias = $epps
-            ->pluck('categoria')
-            ->filter()
-            ->unique()
-            ->values();
+        $categorias = EppCategoria::where('activo', true)
+            ->orderBy('nombre')
+            ->get(['id', 'nombre']);
+
+        $tallas = Talla::where('activo', true)
+            ->orderBy('orden_visual')
+            ->get(['id', 'codigo', 'nombre']);
+
+        $almacenes = Almacen::where('activo', true)
+            ->where('tipo_almacen', 'OPERATIVO')
+            ->with('proyecto')
+            ->get(['id', 'nombre', 'proyecto_id']);
 
         return Inertia::render('EPP/Index', [
-            'epps' => $epps,
+            'epps'       => $epps,
             'categorias' => $categorias,
+            'tallas'     => $tallas,
+            'almacenes'  => $almacenes,
         ]);
     }
 
@@ -55,57 +68,77 @@ class EppController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'nombre' => ['required', 'string', 'max:160'],
-            'categoria' => ['required', 'string', 'max:160'],
-            'marca' => ['required', 'string', 'max:160'],
-            'unidad_medida' => ['required', 'string', 'max:30'],
-            'stock_minimo' => ['required', 'integer', 'min:0'],
-            'stock_inicial' => ['required', 'integer', 'min:0'],
-            'usa_tallas' => ['required', 'boolean'],
-            'talla_inicial' => ['nullable', 'string', 'max:20'],
+            'nombre'          => 'required|string|max:160',
+            'categoria_id'    => 'required|exists:epp_categorias,id',
+            'marca'           => 'nullable|string|max:60',
+            'unidad_medida'   => 'required|string|max:20',
+            'stock_minimo'    => 'required|integer|min:0',
+            'vida_util_meses' => 'nullable|integer|min:1',
+            'usa_tallas'      => 'required|boolean',
+            'almacen_id'      => 'nullable|exists:almacenes,id',
+            'stock_inicial'   => 'nullable|integer|min:0',
+            'tallas_stock'              => 'nullable|array',
+            'tallas_stock.*.talla_id'   => 'required|exists:tallas,id',
+            'tallas_stock.*.almacen_id' => 'required|exists:almacenes,id',
+            'tallas_stock.*.cantidad'   => 'required|integer|min:0',
         ]);
 
         $usaTallas = (bool) $data['usa_tallas'];
-        $stockInicial = (int) $data['stock_inicial'];
-        $tallaInicial = trim((string) ($data['talla_inicial'] ?? ''));
 
-        if ($usaTallas && $stockInicial > 0 && $tallaInicial === '') {
+        if (!$usaTallas && empty($data['almacen_id']) && ($data['stock_inicial'] ?? 0) > 0) {
             throw ValidationException::withMessages([
-                'talla_inicial' => 'Si el EPP usa tallas y registras stock inicial, debes indicar la talla inicial.',
+                'almacen_id' => 'Debes indicar el almacén para registrar stock inicial.',
             ]);
         }
 
-        DB::transaction(function () use ($data, $usaTallas, $stockInicial, $tallaInicial) {
+        DB::transaction(function () use ($data, $usaTallas) {
             $item = EppItem::create([
-                'nombre' => $data['nombre'],
-                'categoria' => $data['categoria'],
-                'marca' => $data['marca'],
-                'unidad_medida' => $data['unidad_medida'],
-                'usa_tallas' => $usaTallas,
-                'stock_total' => $stockInicial,
-                'stock_minimo' => $data['stock_minimo'],
+                'categoria_id'    => $data['categoria_id'],
+                'nombre'          => $data['nombre'],
+                'marca'           => $data['marca'] ?? null,
+                'unidad_medida'   => $data['unidad_medida'],
+                'usa_tallas'      => $usaTallas,
+                'vida_util_meses' => $data['vida_util_meses'] ?? null,
+                'activo'          => true,
             ]);
 
-            // SI USA TALLAS: crea la talla que el usuario indicó
-            if ($usaTallas && $tallaInicial !== '') {
-                $item->tallas()->create([
-                    'talla' => $tallaInicial,
-                    'stock_actual' => $stockInicial,
-                ]);
-            }
+            if ($usaTallas && !empty($data['tallas_stock'])) {
+                foreach ($data['tallas_stock'] as $ts) {
+                    $sku = EppSku::firstOrCreate([
+                        'epp_item_id' => $item->id,
+                        'talla_id'    => $ts['talla_id'],
+                    ]);
 
-            // SI NO USA TALLAS: crea automáticamente la fila "Única"
-            if (! $usaTallas) {
-                $item->tallas()->create([
-                    'talla' => 'Única',
-                    'stock_actual' => $stockInicial,
+                    if ((int) $ts['cantidad'] > 0) {
+                        StockAlmacen::create([
+                            'almacen_id'      => $ts['almacen_id'],
+                            'epp_sku_id'      => $sku->id,
+                            'estado_stock'    => 'DISPONIBLE',
+                            'cantidad_actual' => $ts['cantidad'],
+                            'stock_minimo'    => $data['stock_minimo'],
+                        ]);
+                    }
+                }
+            } else {
+                $tallaUnica = Talla::where('codigo', 'UNICA')->firstOrFail();
+                $sku = EppSku::create([
+                    'epp_item_id' => $item->id,
+                    'talla_id'    => $tallaUnica->id,
                 ]);
+
+                if (!empty($data['almacen_id']) && ($data['stock_inicial'] ?? 0) > 0) {
+                    StockAlmacen::create([
+                        'almacen_id'      => $data['almacen_id'],
+                        'epp_sku_id'      => $sku->id,
+                        'estado_stock'    => 'DISPONIBLE',
+                        'cantidad_actual' => $data['stock_inicial'],
+                        'stock_minimo'    => $data['stock_minimo'],
+                    ]);
+                }
             }
         });
 
-        return redirect()
-            ->route('epp.index')
-            ->with('success', 'EPP registrado exitosamente.');
+        return redirect()->route('epp.index')->with('success', 'EPP registrado exitosamente.');
     }
 
     /**
@@ -130,73 +163,21 @@ class EppController extends Controller
     public function update(Request $request, EppItem $epp): RedirectResponse
     {
         $data = $request->validate([
-            'nombre' => ['required', 'string', 'max:160'],
-            'categoria' => ['required', 'string', 'max:160'],
-            'marca' => ['required', 'string', 'max:160'],
-            'unidad_medida' => ['required', 'string', 'max:30'],
-            'stock_minimo' => ['required', 'integer', 'min:0'],
-            'usa_tallas' => ['required', 'boolean'],
+            'nombre'          => 'required|string|max:160',
+            'categoria_id'    => 'required|exists:epp_categorias,id',
+            'marca'           => 'nullable|string|max:60',
+            'unidad_medida'   => 'required|string|max:20',
+            'stock_minimo'    => 'required|integer|min:0',
+            'vida_util_meses' => 'nullable|integer|min:1',
+            'activo'          => 'boolean',
         ]);
 
-        $nuevoUsaTallas = (bool) $data['usa_tallas'];
-        $stockPorTallas = (int) $epp->tallas()->sum('stock_actual');
+        $epp->update($data);
 
-        if (! $epp->usa_tallas && $nuevoUsaTallas && (int) $epp->stock_total > 0) {
-            throw ValidationException::withMessages([
-                'usa_tallas' => 'No puedes activar tallas si el EPP ya tiene stock global. Ajusta el inventario primero.',
-            ]);
-        }
+        StockAlmacen::whereHas('sku', fn ($q) => $q->where('epp_item_id', $epp->id))
+            ->update(['stock_minimo' => $data['stock_minimo']]);
 
-        if ($epp->usa_tallas && ! $nuevoUsaTallas && $stockPorTallas > 0) {
-            throw ValidationException::withMessages([
-                'usa_tallas' => 'No puedes desactivar tallas mientras existan stocks por talla.',
-            ]);
-        }
-
-        DB::transaction(function () use ($epp, $data, $nuevoUsaTallas) {
-            // Si pasa de usar tallas a NO usar tallas, dejamos una sola fila "Única"
-            if ($epp->usa_tallas && ! $nuevoUsaTallas) {
-                $epp->tallas()->delete();
-
-                $epp->tallas()->create([
-                    'talla' => 'Única',
-                    'stock_actual' => 0,
-                ]);
-            }
-
-            $epp->update([
-                'nombre' => $data['nombre'],
-                'categoria' => $data['categoria'],
-                'marca' => $data['marca'],
-                'unidad_medida' => $data['unidad_medida'],
-                'usa_tallas' => $nuevoUsaTallas,
-                'stock_minimo' => $data['stock_minimo'],
-            ]);
-
-            // Si no usa tallas, garantizamos que exista su fila "Única"
-            if (! $nuevoUsaTallas) {
-                $fila = $epp->tallas()->orderBy('id')->first();
-
-                if (! $fila) {
-                    $epp->tallas()->create([
-                        'talla' => 'Única',
-                        'stock_actual' => (int) $epp->stock_total,
-                    ]);
-                } else {
-                    $valorTalla = trim((string) $fila->talla);
-
-                    if ($valorTalla === '' || mb_strtolower($valorTalla) !== 'única') {
-                        $fila->update([
-                            'talla' => 'Única',
-                        ]);
-                    }
-                }
-            }
-        });
-
-        return redirect()
-            ->route('epp.index')
-            ->with('success', 'EPP actualizado correctamente.');
+        return redirect()->route('epp.index')->with('success', 'EPP actualizado correctamente.');
     }
 
     /**
@@ -204,99 +185,76 @@ class EppController extends Controller
      */
     public function destroy(EppItem $epp): RedirectResponse
     {
-        $stockActual = $epp->usa_tallas
-            ? (int) $epp->tallas()->sum('stock_actual')
-            : (int) $epp->stock_total;
+        $tieneStock = StockAlmacen::whereHas('sku', fn ($q) => $q->where('epp_item_id', $epp->id))
+            ->where('cantidad_actual', '>', 0)
+            ->exists();
 
-        if ($stockActual > 0) {
+        if ($tieneStock) {
             return back()->with('error', 'No puedes eliminar un EPP que aún tiene stock.');
         }
 
         try {
             DB::transaction(function () use ($epp) {
-                $epp->tallas()->delete();
-                $epp->delete();
+                StockAlmacen::whereHas('sku', fn ($q) => $q->where('epp_item_id', $epp->id))->delete();
+                $epp->skus()->delete();
+                $epp->update(['activo' => false]);
             });
 
-            return redirect()
-                ->route('epp.index')
-                ->with('success', 'EPP eliminado correctamente.');
-        } catch (QueryException $e) {
-            return back()->with(
-                'error',
-                'No se puede eliminar este EPP porque tiene movimientos relacionados.'
-            );
+            return redirect()->route('epp.index')->with('success', 'EPP desactivado correctamente.');
+        } catch (QueryException) {
+            return back()->with('error', 'No se puede eliminar este EPP porque tiene movimientos relacionados.');
         }
     }
 
     private function mapEpp(EppItem $item): array
     {
-        $stockPorTallas = $item->tallas->map(function ($talla) {
+        $skusMapeados = $item->skus->map(function (EppSku $sku) {
+            $stockDisponible = $sku->stocks->where('estado_stock', 'DISPONIBLE')->sum('cantidad_actual');
+
             return [
-                'id' => $talla->id,
-                'talla' => (string) $talla->talla,
-                'stock_actual' => (int) $talla->stock_actual,
+                'id'               => $sku->id,
+                'talla_id'         => $sku->talla_id,
+                'talla'            => $sku->talla?->codigo ?? 'UNICA',
+                'talla_nombre'     => $sku->talla?->nombre ?? 'Única',
+                'stock_disponible' => (int) $stockDisponible,
+                'stocks_por_almacen' => $sku->stocks->map(fn ($s) => [
+                    'almacen_id'      => $s->almacen_id,
+                    'estado_stock'    => $s->estado_stock,
+                    'cantidad_actual' => $s->cantidad_actual,
+                    'stock_minimo'    => $s->stock_minimo,
+                ])->values(),
             ];
         })->values();
 
-        // Si tiene filas en inventario por talla, usamos ese stock (incluye "Única")
-        $stockActual = $stockPorTallas->isNotEmpty()
-            ? (int) $stockPorTallas->sum('stock_actual')
-            : (int) $item->stock_total;
+        $stockTotal = $skusMapeados->sum('stock_disponible');
 
         return [
-            'id' => $item->id,
-            'codigo' => 'EPP-' . str_pad((string) $item->id, 3, '0', STR_PAD_LEFT),
-            'nombre' => $item->nombre,
-            'marca' => $item->marca,
-            'categoria' => $item->categoria,
-            'unidad_medida' => $item->unidad_medida,
-            'unidad' => $item->unidad_medida,
-            'usa_tallas' => (bool) $item->usa_tallas,
-            'stock' => $stockActual,
-            'stockMinimo' => (int) $item->stock_minimo,
-            'estado' => $this->resolverEstado($stockActual, (int) $item->stock_minimo),
-            'tallas' => $stockPorTallas,
+            'id'              => $item->id,
+            'codigo'          => 'EPP-' . str_pad((string) $item->id, 3, '0', STR_PAD_LEFT),
+            'nombre'          => $item->nombre,
+            'marca'           => $item->marca,
+            'categoria'       => $item->categoria?->nombre,
+            'categoria_id'    => $item->categoria_id,
+            'unidad_medida'   => $item->unidad_medida,
+            'usa_tallas'      => (bool) $item->usa_tallas,
+            'vida_util_meses' => $item->vida_util_meses,
+            'stock'           => $stockTotal,
+            'stock_minimo'    => $this->getStockMinimo($item),
+            'estado'          => $this->resolverEstado($stockTotal, $this->getStockMinimo($item)),
+            'activo'          => (bool) $item->activo,
+            'skus'            => $skusMapeados,
         ];
     }
-
-    private function resolverEstado(int $stockActual, int $stockMinimo): string
+    private function getStockMinimo(EppItem $item): int
     {
-        if ($stockActual <= 0) {
-            return 'agotado';
-        }
-
-        if ($stockActual <= $stockMinimo) {
-            return 'bajo_stock';
-        }
-
-        return 'disponible';
+        return (int) StockAlmacen::whereHas('sku', fn ($q) => $q->where('epp_item_id', $item->id))
+            ->max('stock_minimo');
     }
 
-    /**
-     * Arregla EPP antiguos que no usan talla pero no tienen fila en epp_inventario_tallas.
-     */
-    private function asegurarInventarioUnicoParaEppsSinTalla(): void
+    private function resolverEstado(int $stock, int $minimo): string
     {
-        EppItem::with('tallas:id,epp_item_id,talla,stock_actual')
-            ->where('usa_tallas', false)
-            ->get()
-            ->each(function (EppItem $item) {
-                $primeraFila = $item->tallas->sortBy('id')->first();
-
-                if (! $primeraFila) {
-                    $item->tallas()->create([
-                        'talla' => 'Única',
-                        'stock_actual' => (int) $item->stock_total,
-                    ]);
-
-                    return;
-                }
-
-                $primeraFila->update([
-                    'talla' => 'Única',
-                    'stock_actual' => (int) $item->stock_total,
-                ]);
-            });
+        if ($stock <= 0)       return 'AGOTADO';
+        if ($stock <= $minimo) return 'BAJO_STOCK';
+        return 'DISPONIBLE';
     }
 }

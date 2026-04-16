@@ -14,7 +14,6 @@ return new class extends Migration
         Schema::create('cargos_laborales', function (Blueprint $table) {
             $table->id();
             $table->string('nombre', 100)->unique();
-            $table->boolean('activo')->default(true);
             $table->timestamps();
         });
     }

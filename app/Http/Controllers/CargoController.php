@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CargoLaboral;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use App\Models\Cargo;
 
 class CargoController extends Controller
 {
@@ -12,7 +13,7 @@ class CargoController extends Controller
      */
     public function index()
     {
-        /* return response()->json(Cargo::all()); */
+        return response()->json(CargoLaboral::orderBy('nombre')->get(['id', 'nombre']));
     }
 
     /**
@@ -29,14 +30,13 @@ class CargoController extends Controller
     public function storeQuick(Request $request)
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255|unique:cargos,nombre',
+            'nombre' => 'required|string|max:255|unique:cargo_laboral,nombre',
         ]);
-
-        Cargo::create($validated); 
+        $cargo = CargoLaboral::create($validated);
 
         return redirect()
-            ->route('trabajadores.index')
-            ->with('success', 'Cargo creado exitosamente.');
+        ->route('trabajadores.index')
+        ->with('success', 'Cargo laboral creado exitosamente.');
     }
 
     /**
@@ -58,16 +58,28 @@ class CargoController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, CargoLaboral $cargo): RedirectResponse
     {
-        //
+        $validated = $request->validate([
+            'nombre' => 'required|string|max:255|unique:cargo_laboral,nombre,' . $cargo->id,
+        ]);
+        
+        $cargo->update($validated);
+
+        return back()->with('success', 'Cargo laboral actualizado exitosamente.');
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy(CargoLaboral $cargo): RedirectResponse
     {
-        //
+        if ($cargo->trabajadores()->exists()) {
+            return back()->with('error', 'No se puede eliminar el cargo laboral porque está asociado a trabajadores.');
+        }
+
+        $cargo->delete();
+
+        return back()->with('success', 'Cargo laboral eliminado exitosamente.');
     }
 }
