@@ -1,386 +1,253 @@
-import AdminLayout from "@/Layouts/AdminLayout"
-import { Head } from "@inertiajs/react"
-
+import AdminLayout from "@/Layouts/AdminLayout";
+import { Head, usePage } from "@inertiajs/react";
+import { router } from "@inertiajs/react";
+import { useState } from "react";
 import {
-  AlertCircle,
-  Activity,
-  Clock,
-  Package,
-  TrendingUp,
-  TrendingDown,
-  HardHat,
-  Users,
-} from "lucide-react"
+    AlertCircle, Activity, Package, HardHat, Users,
+    TrendingUp, TrendingDown, ArrowUpRight,
+} from "lucide-react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts"
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-} from "@/components/ui/chart"
-
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-
-const stockVsMinimoData = [
-  { epp: "Cascos", stock: 245, minimo: 200 },
-  { epp: "Guantes", stock: 180, minimo: 250 },
-  { epp: "Botas", stock: 156, minimo: 150 },
-  { epp: "Gafas", stock: 98, minimo: 120 },
-  { epp: "Chalecos", stock: 89, minimo: 100 },
-  { epp: "Arneses", stock: 45, minimo: 80 },
-]
-
-const consumoData = [
-  { dia: "01", cantidad: 12 },
-  { dia: "03", cantidad: 18 },
-  { dia: "05", cantidad: 15 },
-  { dia: "07", cantidad: 22 },
-  { dia: "09", cantidad: 19 },
-  { dia: "11", cantidad: 25 },
-  { dia: "13", cantidad: 21 },
-  { dia: "15", cantidad: 28 },
-  { dia: "17", cantidad: 24 },
-  { dia: "19", cantidad: 30 },
-  { dia: "21", cantidad: 26 },
-  { dia: "23", cantidad: 32 },
-  { dia: "25", cantidad: 29 },
-  { dia: "27", cantidad: 35 },
-  { dia: "29", cantidad: 31 },
-]
-
-const cumplimientoData = [
-  { area: "Producción", cumplimiento: 95 },
-  { area: "Almacén", cumplimiento: 85 },
-  { area: "Mantenimiento", cumplimiento: 72 },
-]
-
-const incumplimientoData = [
-  { causa: "Olvido", cantidad: 45, porcentaje: 35 },
-  { causa: "EPP deteriorado", cantidad: 32, porcentaje: 25 },
-  { causa: "Incomodidad", cantidad: 28, porcentaje: 22 },
-  { causa: "No disponible", cantidad: 18, porcentaje: 14 },
-  { causa: "Otros", cantidad: 5, porcentaje: 4 },
-]
-
-const vencimientosData = [
-  { epp: "Cascos Seguridad", empleado: "Carlos Rodríguez", dias: 15, categoria: "30" },
-  { epp: "Guantes Industriales", empleado: "María González", dias: 22, categoria: "30" },
-  { epp: "Botas Puntera", empleado: "Pedro Martínez", dias: 28, categoria: "30" },
-  { epp: "Gafas Protección", empleado: "Ana López", dias: 45, categoria: "60" },
-  { epp: "Chaleco Reflectivo", empleado: "Luis Hernández", dias: 52, categoria: "60" },
-  { epp: "Arnés Seguridad", empleado: "José García", dias: 75, categoria: "90" },
-  { epp: "Protector Auditivo", empleado: "Carmen Silva", dias: 88, categoria: "90" },
-]
-
-const stockChartConfig = {
-  stock: {
-    label: "Stock Actual",
-    color: "var(--chart-1)",
-  },
-  minimo: {
-    label: "Stock Mínimo",
-    color: "var(--chart-2)",
-  },
-}
-
-const consumoChartConfig = {
-  cantidad: {
-    label: "Unidades",
-    color: "var(--chart-3)",
-  },
-}
-
-const cumplimientoChartConfig = {
-  cumplimiento: {
-    label: "% Cumplimiento",
-    color: "var(--chart-4)",
-  },
-}
-
-const paretoChartConfig = {
-  cantidad: {
-    label: "Cantidad",
-    color: "var(--chart-1)",
-  },
-  porcentaje: {
-    label: "% Acumulado",
-    color: "var(--chart-2)",
-  },
-}
-
-export default function Dashboard() {
-  const total30 = vencimientosData.filter((v) => v.categoria === "30").length
-  const total60 = vencimientosData.filter((v) => v.categoria === "60").length
-  const total90 = vencimientosData.filter((v) => v.categoria === "90").length
-
-  return (
-    <AdminLayout>
-      <Head title="Dashboard" />
-
-      <div className="flex-1 space-y-6 bg-muted/30 p-6">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard de Control EPP</h1>
-          <p className="text-muted-foreground">
-            Monitoreo en tiempo real del sistema
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <KPICard
-            title="Stock crítico"
-            value="3"
-            subtitle="EPPs bajo mínimo"
-            icon={AlertCircle}
-            trend="up"
-            trendValue="+1"
-          />
-          <KPICard
-            title="Cumplimiento"
-            value="87%"
-            subtitle="Uso de EPP"
-            icon={Activity}
-            trend="up"
-            trendValue="+3%"
-          />
-          <KPICard
-            title="Días cobertura"
-            value="45"
-            subtitle="Días promedio"
-            icon={Clock}
-            trend="down"
-            trendValue="-2"
-          />
-          <KPICard
-            title="Renovaciones"
-            value="12"
-            subtitle="Este mes"
-            icon={Package}
-            trend="up"
-            trendValue="+3"
-          />
-          <KPICard
-            title="Incidentes"
-            value="5"
-            subtitle="Reportados"
-            icon={AlertCircle}
-            trend="down"
-            trendValue="-2"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Stock vs mínimo por EPP</CardTitle>
-              <CardDescription>Comparativo de inventario actual y mínimo</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={stockChartConfig} className="min-h-[320px] w-full">
-                <BarChart accessibilityLayer data={stockVsMinimoData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="epp"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={10}
-                  />
-                  <YAxis tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <ChartLegend content={<ChartLegendContent />} />
-                  <Bar dataKey="stock" fill="var(--color-stock)" radius={6} />
-                  <Bar dataKey="minimo" fill="var(--color-minimo)" radius={6} />
-                </BarChart>
-              </ChartContainer>
+function KPICard({ title, value, subtitle, icon: Icon, color = "text-foreground" }) {
+    return (
+        <Card>
+            <CardContent className="p-6">
+                <div className="mb-3 flex items-center justify-between">
+                    <div className="rounded-lg border bg-background p-2.5">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                </div>
+                <p className="text-sm text-muted-foreground">{title}</p>
+                <p className={`text-3xl font-bold ${color}`}>{value}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
             </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Consumo de EPP</CardTitle>
-              <CardDescription>Últimos 30 días</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={consumoChartConfig} className="min-h-[320px] w-full">
-                <LineChart accessibilityLayer data={consumoData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="dia"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={10}
-                  />
-                  <YAxis tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <ChartLegend content={<ChartLegendContent />} />
-                  <Line
-                    type="monotone"
-                    dataKey="cantidad"
-                    stroke="var(--color-cantidad)"
-                    strokeWidth={3}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Cumplimiento por área</CardTitle>
-              <CardDescription>Porcentaje actual por unidad</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={cumplimientoChartConfig} className="min-h-[320px] w-full">
-                <BarChart accessibilityLayer data={cumplimientoData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="area"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={10}
-                  />
-                  <YAxis domain={[0, 100]} tickLine={false} axisLine={false} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="cumplimiento" radius={6}>
-                    {cumplimientoData.map((entry, index) => (
-                      <Cell
-                        key={`cumplimiento-${index}`}
-                        fill={
-                          entry.cumplimiento >= 90
-                            ? "#10b981"
-                            : entry.cumplimiento >= 80
-                            ? "#f59e0b"
-                            : "#ef4444"
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Pareto de incumplimiento</CardTitle>
-              <CardDescription>Causas principales detectadas</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ChartContainer config={paretoChartConfig} className="min-h-[320px] w-full">
-                <ComposedChart accessibilityLayer data={incumplimientoData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="causa"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={10}
-                    angle={-12}
-                    textAnchor="end"
-                    height={60}
-                  />
-                  <YAxis yAxisId="left" tickLine={false} axisLine={false} />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    domain={[0, 100]}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <ChartLegend content={<ChartLegendContent />} />
-                  <Bar
-                    yAxisId="left"
-                    dataKey="cantidad"
-                    fill="var(--color-cantidad)"
-                    radius={6}
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="porcentaje"
-                    stroke="var(--color-porcentaje)"
-                    strokeWidth={3}
-                    dot={{ r: 4 }}
-                  />
-                </ComposedChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </AdminLayout>
-  )
+        </Card>
+    );
 }
 
-function KPICard({ title, value, subtitle, icon: Icon, trend, trendValue }) {
-  const TrendIcon = trend === "up" ? TrendingUp : TrendingDown
-  const trendClass = trend === "up" ? "text-emerald-600" : "text-red-600"
+// ── Componente principal ──────────────────────────────────────────────────────
 
-  return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="rounded-lg border bg-background p-3">
-            <Icon className="h-5 w-5" />
-          </div>
-          <span className={`inline-flex items-center gap-1 text-sm font-medium ${trendClass}`}>
-            <TrendIcon className="h-4 w-4" />
-            {trendValue}
-          </span>
-        </div>
+export default function Dashboard({
+    stats            = {},
+    topEpp           = [],
+    barData          = [],
+    stockBajoMinimo  = [],
+    topTrabajadores  = [],
+    filters          = {},
+    proyectos        = [],
+}) {
+    const [proyectoId, setProyectoId] = useState(filters.proyecto_id ?? "todos");
+    const [anio,       setAnio]       = useState(String(filters.year ?? new Date().getFullYear()));
+    const [mes,        setMes]        = useState(filters.mes ?? "");
 
-        <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold">{value}</p>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
+    const applyFilters = (params = {}) => {
+        router.get(route("dashboard"), {
+            proyecto_id: params.proyecto_id ?? proyectoId,
+            year:        params.year        ?? anio,
+            mes:         params.mes         ?? mes,
+        }, { preserveState: true, replace: true });
+    };
 
-function PriorityBadge({ categoria }) {
-  if (categoria === "30") {
-    return <Badge className="bg-yellow-500 hover:bg-yellow-500">Alta</Badge>
-  }
+    const mesesLabels = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
-  if (categoria === "60") {
-    return <Badge className="bg-orange-500 hover:bg-orange-500">Media</Badge>
-  }
+    const totalEntregas = barData.reduce((s, d) => s + d.total, 0);
 
-  return <Badge variant="destructive">Baja</Badge>
+    return (
+        <AdminLayout>
+            <Head title="Dashboard" />
+
+            <div className="flex-1 space-y-6 bg-muted/30 p-6">
+                {/* Header */}
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-bold tracking-tight">Dashboard EPP</h1>
+                    <p className="text-muted-foreground text-sm">Métricas y trazabilidad del sistema</p>
+                </div>
+
+                {/* Filtros */}
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="flex flex-wrap gap-3 items-end">
+                            <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">Proyecto</p>
+                                <select value={proyectoId}
+                                    onChange={e => { setProyectoId(e.target.value); applyFilters({ proyecto_id: e.target.value }); }}
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+                                    <option value="todos">Todos</option>
+                                    {proyectos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">Año</p>
+                                <select value={anio}
+                                    onChange={e => { setAnio(e.target.value); applyFilters({ year: e.target.value }); }}
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+                                    {[2026,2025,2024,2023].map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">Mes</p>
+                                <select value={mes}
+                                    onChange={e => { setMes(e.target.value); applyFilters({ mes: e.target.value }); }}
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+                                    <option value="">Todo el año</option>
+                                    {mesesLabels.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* KPIs */}
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+                    <KPICard title="Entregas"        value={stats.total_entregas       ?? 0} subtitle="EPP asignados"         icon={Package}     color="text-blue-600" />
+                    <KPICard title="Con EPP activo"  value={stats.trabajadores_con_epp ?? 0} subtitle="Trabajadores en campo"  icon={Users}       color="text-green-600" />
+                    <KPICard title="En custodia"     value={stats.en_custodia           ?? 0} subtitle="Unidades en uso"       icon={HardHat}     color="text-violet-600" />
+                    <KPICard title="Devueltos"       value={stats.devueltos_desgaste   ?? 0} subtitle="En segregación"        icon={Activity}    color="text-amber-600" />
+                    <KPICard title="Incidencias"     value={stats.incidencias           ?? 0} subtitle="Registradas"          icon={AlertCircle} color="text-red-600" />
+                </div>
+
+                {/* Gráficos fila */}
+                <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+                    {/* Barras por mes */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Entregas por mes</CardTitle>
+                            <CardDescription>
+                                Total acumulado: <strong>{totalEntregas}</strong> entregas en {anio}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <ResponsiveContainer width="100%" height={240}>
+                                <BarChart data={barData}>
+                                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                                    <XAxis dataKey="mes" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
+                                    <YAxis tickLine={false} axisLine={false} fontSize={12} />
+                                    <Tooltip />
+                                    <Bar dataKey="total" name="Entregas" fill="#2563EB" radius={[4,4,0,0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </CardContent>
+                    </Card>
+
+                    {/* Stock bajo mínimo */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base">⚠️ Stock bajo mínimo</CardTitle>
+                            <CardDescription>EPP que requieren reposición</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            {stockBajoMinimo.length === 0 ? (
+                                <p className="px-5 py-4 text-sm text-muted-foreground">Sin alertas de stock</p>
+                            ) : (
+                                <div className="divide-y">
+                                    {stockBajoMinimo.map((s, i) => (
+                                        <div key={i} className="flex items-center justify-between px-5 py-3">
+                                            <div className="min-w-0">
+                                                <p className="font-medium text-sm truncate">{s.epp}</p>
+                                                <p className="text-xs text-muted-foreground">{s.almacen}</p>
+                                            </div>
+                                            <div className="text-right shrink-0 ml-3">
+                                                <p className="text-lg font-bold text-red-600">{s.cantidad_actual}</p>
+                                                <p className="text-xs text-muted-foreground">mín: {s.stock_minimo}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Top EPP + Top Trabajadores */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                    {/* Top 10 EPP */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>🏆 Top EPP más entregados</CardTitle>
+                            <CardDescription>{anio}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-8">#</TableHead>
+                                        <TableHead>EPP</TableHead>
+                                        <TableHead>Categoría</TableHead>
+                                        <TableHead className="text-right">Entregas</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {topEpp.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                                                Sin datos para el período seleccionado
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : topEpp.map((e, i) => (
+                                        <TableRow key={e.id}>
+                                            <TableCell className="font-mono text-xs text-muted-foreground">{i + 1}</TableCell>
+                                            <TableCell className="font-medium">{e.nombre}</TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className="text-xs">{e.categoria ?? "—"}</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold text-blue-600">{e.total_entregas}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+
+                    {/* Top Trabajadores */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>🧑‍🏭 Top trabajadores</CardTitle>
+                            <CardDescription>EPP activos en custodia</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>#</TableHead>
+                                        <TableHead>Trabajador</TableHead>
+                                        <TableHead>Proyecto</TableHead>
+                                        <TableHead className="text-right">En campo</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {topTrabajadores.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                                                Sin datos
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : topTrabajadores.map((t, i) => (
+                                        <TableRow key={i}>
+                                            <TableCell className="font-mono text-xs text-muted-foreground">{i + 1}</TableCell>
+                                            <TableCell>
+                                                <div>
+                                                    <p className="font-medium text-sm">{t.trabajador}</p>
+                                                    <p className="text-xs text-muted-foreground">{t.fotocheck}</p>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className="text-xs">{t.proyecto}</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold text-green-600">{t.total_activo}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+        </AdminLayout>
+    );
 }

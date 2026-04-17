@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\ProfileController;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\CargoController;
 use App\Http\Controllers\CustodiaController;
 use App\Http\Controllers\DashboardController;
@@ -15,31 +15,24 @@ use App\Http\Controllers\MovimientoEppController;
 use App\Http\Controllers\SegregacionController;
 use App\Http\Controllers\TrabajadorController;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
+// ── Ruta raíz: redirige según autenticación ───────────────────────────────────
 Route::get('/', function () {
-    return Inertia::render('Auth/Login', [
-        'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register'),
-        'laravelVersion' => Application::VERSION,
-        'phpVersion' => PHP_VERSION,
-    ]);
+    return Auth::check()
+        ? redirect()->route('dashboard')
+        : redirect()->route('login');
 });
 
-/* cambianr la ruta de welcome a login */
-/* Route::get('/', function () {
-    return Auth::check()
-    ?redirect() -> route('dashboard')
-    :redirect() -> route('login');
-}); */
-
-Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
-
+// ── Rutas protegidas ──────────────────────────────────────────────────────────
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    // Dashboard
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Perfil (Breeze)
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     // Trabajadores
     Route::resource('trabajadores', TrabajadorController::class);
