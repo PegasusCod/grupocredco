@@ -88,9 +88,35 @@ const data = {
           active: route().current('inventario.index') // Marca como activo si la ruta actual es 'inventario.index'
         },
         {
-          title: "Reportes de Entregas",
-          url: "#",
+          title: "Custodia EPP",
+          url: route('custodia.index'), // Aquí se puede usar route('custodia.index') si tienes esa ruta nombrada
+          icon: Map,
+          active: route().current('custodia.index') // Marca como activo si la ruta actual es 'custodia.index'
         },
+        {
+          title: "Transferencias",
+          url: route('transferencias.index'), // Aquí se puede usar route('transferencias.index') si tienes esa ruta nombrada
+          icon: Settings2,
+          active: route().current('transferencias.index') // Marca como activo si la ruta actual es 'transferencias.index'
+        },
+        {
+          title: "Kardex de EPP",
+          url: route('kardex.index'), // Aquí se puede usar route('kardex.index') si tienes esa ruta nombrada
+          icon: SquareTerminal,
+          active: route().current('kardex.index') // Marca como activo si la ruta actual es 'kardex.index'
+        },
+        {
+          title: "Segregación de EPP",
+          url: route('segregacion.index'), // Aquí se puede usar route('segregacion.index') si tienes esa ruta nombrada
+          icon: Bot,
+          active: route().current('segregacion.index') // Marca como activo si la ruta actual es 'segregacion.index'
+        },
+        {
+          title: "Configuraciones",
+          url: route('configuracion.index'), // Aquí se puede usar route('configuracion.index') si tienes esa ruta nombrada
+          icon: Settings2,
+          active: route().current('configuracion.index') // Marca como activo si la ruta actual es 'configuracion.index'
+        }
       ],
     },
     {

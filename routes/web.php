@@ -14,6 +14,10 @@ use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\MovimientoEppController;
 use App\Http\Controllers\SegregacionController;
 use App\Http\Controllers\TrabajadorController;
+use App\Http\Controllers\ConfiguracionController;
+use App\Http\Controllers\ProyectoController;
+use App\Http\Controllers\AlmacenController;
+use App\Models\Proyecto;
 use Illuminate\Support\Facades\Route;
 
 // ── Ruta raíz: redirige según autenticación ───────────────────────────────────
@@ -70,6 +74,19 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Segregación / Baja
     Route::get('segregacion', [SegregacionController::class, 'index'])->name('segregacion.index');
     Route::post('segregacion/dar-baja', [SegregacionController::class, 'darBaja'])->name('segregacion.darBaja');
+
+    /* Tablas maestras como cargo, proyecto,almacenes */
+    Route::get('configuracion', [ConfiguracionController::class, 'index'])->name('configuracion.index');
+
+    /* Proyectos (CRUDCOMPLETO) */
+    Route::resource('proyectos', ProyectoController::class)->except(['index', 'create', 'edit', 'show']);
+
+    /* CRUD de almacenes */
+
+    // Almacenes (CRUD completo)
+    Route::resource('almacenes', AlmacenController::class)->except(['create', 'edit', 'show']);
+
+
 });
 
 require __DIR__.'/auth.php';

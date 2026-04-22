@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Trabajador;
-use app\Models\CargoLaboral;
-use app\Models\Proyecto;
+use App\Models\CargoLaboral;
+use App\Models\Proyecto;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -16,12 +16,12 @@ class TrabajadorController extends Controller
     public function index(Request $request)
     {
         $search = $request->string('search')->toString();
-        $proyectoId = $request->string('proyecto_id');
+        $proyectoId = $request->input('proyecto_id');
         $estado = $request->string('estado')->toString();
 
         $trabajadores = Trabajador::query()
-            ->with('cargoLaboral:id,nombre', 'proyectos:id,nombre')
-            ->withcount([
+            ->with('cargoLaboral:id,nombre', 'proyecto:id,nombre')
+            ->withCount([
                 'entregas as epp_entregados_total' => function ($query) {
                     $query->where('estado', 'CONFIRMADO');
                 },  
@@ -40,10 +40,8 @@ class TrabajadorController extends Controller
                 )
             )
             
-            ->when($proyectoId, fn ($q) =>
-                $q->whereHas('proyectos', fn ($q) =>
-                    $q->where('proyecto_id', $proyectoId)
-                )
+            ->when($proyectoId && $proyectoId !== 'todos', fn ($q) =>
+                $q->where('proyecto_id', $proyectoId)
             )
 
             ->when($estado && $estado !== 'todos', fn ($q) =>
@@ -68,7 +66,9 @@ class TrabajadorController extends Controller
                 'fecha_ingreso'    => $t->fecha_ingreso?->format('Y-m-d'),
                 'fecha_cese'       => $t->fecha_cese?->format('Y-m-d'),
                 'estado'           => $t->estado,
-                'foto_url'         => $t->foto_url,
+                'foto_url'         => $t->foto_url
+                ? asset('storage/'. $t->foto_url)
+                : null,
                 'entregas_count'   => (int) ($t->epp_entregados_total ?? 0),
             ])
             ->withQueryString();

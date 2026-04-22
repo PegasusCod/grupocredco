@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CargoLaboral extends Model
 {
-    protected $table = 'cargo_laborales';
+    protected $table = 'cargos_laborales';
 
     protected $fillable = [
         'nombre',

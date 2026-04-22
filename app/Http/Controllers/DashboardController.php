@@ -6,6 +6,7 @@ use App\Models\EppEntrega;
 use App\Models\IncidenciaEpp;
 use App\Models\StockAlmacen;
 use App\Models\TrabajadorEppCustodia;
+use App\Models\Proyecto;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -23,28 +24,36 @@ class DashboardController extends Controller
 
         $stats = [
             'total_entregas' => EppEntrega::where('estado', 'CONFIRMADO')
-                ->when($proyectoId, fn ($q) => $q->where('proyecto_id', $proyectoId))
+                ->when($proyectoId, fn($q) => $q->where('proyecto_id', $proyectoId))
                 ->whereYear('fecha_entrega', $anio)
-                ->when($mes, fn ($q) => $q->whereMonth('fecha_entrega', $mes))
+                ->when($mes, fn($q) => $q->whereMonth('fecha_entrega', $mes))
                 ->count(),
             'trabajadores_con_epp' => TrabajadorEppCustodia::where('estado', 'ACTIVO')
-                ->when($proyectoId, fn ($q) =>
-                    $q->whereHas('trabajador', fn ($t) => $t->where('proyecto_id', $proyectoId))
+                ->when(
+                    $proyectoId,
+                    fn($q) =>
+                    $q->whereHas('trabajador', fn($t) => $t->where('proyecto_id', $proyectoId))
                 )
                 ->distinct('trabajador_id')->count(),
             'en_custodia' => TrabajadorEppCustodia::where('estado', 'ACTIVO')
-                ->when($proyectoId, fn ($q) =>
-                    $q->whereHas('trabajador', fn ($t) => $t->where('proyecto_id', $proyectoId))
+                ->when(
+                    $proyectoId,
+                    fn($q) =>
+                    $q->whereHas('trabajador', fn($t) => $t->where('proyecto_id', $proyectoId))
                 )
                 ->sum('cantidad_entregada'),
             'devueltos_desgaste' => TrabajadorEppCustodia::where('estado', 'DEVUELTO_DANADO')
-                ->when($proyectoId, fn ($q) =>
-                    $q->whereHas('trabajador', fn ($t) => $t->where('proyecto_id', $proyectoId))
+                ->when(
+                    $proyectoId,
+                    fn($q) =>
+                    $q->whereHas('trabajador', fn($t) => $t->where('proyecto_id', $proyectoId))
                 )
                 ->sum('cantidad_devuelta'),
             'incidencias' => IncidenciaEpp::whereIn('estado', ['REGISTRADA', 'ATENDIDA'])
-                ->when($proyectoId, fn ($q) => $q->where('proyecto_id', $proyectoId))
+                ->when($proyectoId, fn($q) => $q->where('proyecto_id', $proyectoId))
                 ->count(),
+
+            'proyectos' => Proyecto::where('activo',true)->get(['id', 'nombre']),
         ];
 
         // Top 10 EPP más entregados
@@ -54,7 +63,7 @@ class DashboardController extends Controller
             ->leftJoin('epp_categorias', 'epp_items.categoria_id', '=', 'epp_categorias.id')
             ->where('epp_entregas.estado', 'CONFIRMADO')
             ->whereYear('epp_entregas.fecha_entrega', $anio)
-            ->when($proyectoId, fn ($q) => $q->where('epp_entregas.proyecto_id', $proyectoId))
+            ->when($proyectoId, fn($q) => $q->where('epp_entregas.proyecto_id', $proyectoId))
             ->selectRaw('epp_items.id, epp_items.nombre, epp_categorias.nombre as categoria, SUM(epp_entrega_detalles.cantidad) as total_entregas')
             ->groupBy('epp_items.id', 'epp_items.nombre', 'epp_categorias.nombre')
             ->orderByDesc('total_entregas')
@@ -64,14 +73,14 @@ class DashboardController extends Controller
         // Gráfico de barras por mes
         $entregasPorMes = EppEntrega::where('estado', 'CONFIRMADO')
             ->whereYear('fecha_entrega', $anio)
-            ->when($proyectoId, fn ($q) => $q->where('proyecto_id', $proyectoId))
+            ->when($proyectoId, fn($q) => $q->where('proyecto_id', $proyectoId))
             ->selectRaw('MONTH(fecha_entrega) as mes, COUNT(*) as total')
             ->groupBy('mes')
             ->orderBy('mes')
             ->pluck('total', 'mes');
 
-        $meses   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-        $barData = collect(range(1, 12))->map(fn ($m) => [
+        $meses   = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        $barData = collect(range(1, 12))->map(fn($m) => [
             'mes'   => $meses[$m - 1],
             'total' => (int) ($entregasPorMes[$m] ?? 0),
         ]);
@@ -83,7 +92,7 @@ class DashboardController extends Controller
             ->where('cantidad_actual', '>', 0)
             ->limit(8)
             ->get()
-            ->map(fn ($s) => [
+            ->map(fn($s) => [
                 'epp'             => $s->sku?->item?->nombre,
                 'categoria'       => $s->sku?->item?->categoria?->nombre,
                 'talla'           => $s->sku?->talla?->codigo ?? 'ÚNICA',
@@ -95,8 +104,10 @@ class DashboardController extends Controller
         // Top trabajadores con más EPP activos en custodia
         $topTrabajadores = TrabajadorEppCustodia::with('trabajador.proyecto')
             ->where('estado', 'ACTIVO')
-            ->when($proyectoId, fn ($q) =>
-                $q->whereHas('trabajador', fn ($t) => $t->where('proyecto_id', $proyectoId))
+            ->when(
+                $proyectoId,
+                fn($q) =>
+                $q->whereHas('trabajador', fn($t) => $t->where('proyecto_id', $proyectoId))
             )
             ->selectRaw('trabajador_id, SUM(cantidad_entregada) as total_activo, COUNT(*) as tipos')
             ->groupBy('trabajador_id')
@@ -104,7 +115,7 @@ class DashboardController extends Controller
             ->limit(5)
             ->with('trabajador.proyecto')
             ->get()
-            ->map(fn ($c) => [
+            ->map(fn($c) => [
                 'trabajador'   => "{$c->trabajador->nombres} {$c->trabajador->apellidos}",
                 'fotocheck'    => $c->trabajador->codigo_fotocheck,
                 'proyecto'     => $c->trabajador->proyecto?->nombre,

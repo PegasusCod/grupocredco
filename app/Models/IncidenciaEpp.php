@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class IncidenciaEpp extends Model
 {
-    protected $table = 'incidencia_epp';
+    protected $table = 'incidencias_epp';
 
     protected $fillable = [
         'fecha_incidencia',

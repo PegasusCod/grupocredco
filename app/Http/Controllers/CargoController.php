@@ -30,7 +30,7 @@ class CargoController extends Controller
     public function storeQuick(Request $request)
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255|unique:cargo_laboral,nombre',
+            'nombre' => 'required|string|max:255|unique:cargos_laborales,nombre',
         ]);
         $cargo = CargoLaboral::create($validated);
 
@@ -61,7 +61,7 @@ class CargoController extends Controller
     public function update(Request $request, CargoLaboral $cargo): RedirectResponse
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255|unique:cargo_laboral,nombre,' . $cargo->id,
+            'nombre' => 'required|string|max:255|unique:cargos_laborales,nombre,' . $cargo->id,
         ]);
         
         $cargo->update($validated);

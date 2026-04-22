@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\MovimientoEpp;
 use App\Models\MovimientoTipo;
 use App\Models\Proyecto;
+use App\Models\Almacen;
 use App\Models\StockAlmacen;
 use App\Models\TrabajadorEppCustodia;
 use Illuminate\Http\RedirectResponse;
@@ -86,6 +87,9 @@ class CustodiaController extends Controller
             'historial' => $historial,
             'stats'     => $stats,
             'proyectos' => Proyecto::where('activo', true)->get(['id', 'nombre']),
+            'almacenesSegregacion' => Almacen::where('tipo_almacen', 'SEGREGACION')
+            ->Where('activo', true) 
+            ->get(['id', 'nombre']),
             'filters'   => [
                 'search'      => $search,
                 'proyecto_id' => $proyectoId ?: 'todos',

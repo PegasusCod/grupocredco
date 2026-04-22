@@ -192,9 +192,6 @@ export default function TrabajadoresIndex({
                         </p>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => setShowCargoModal(true)}>
-                            <Briefcase className="mr-2 h-4 w-4" /> Nuevo cargo
-                        </Button>
                         <Button onClick={openCreate} disabled={!canCreate}>
                             <Plus className="mr-2 h-4 w-4" /> Nuevo trabajador
                         </Button>
@@ -532,26 +529,6 @@ export default function TrabajadoresIndex({
                             </div>
                         </div>
                     )}
-                </DialogContent>
-            </Dialog>
-
-            {/* ── Modal Cargo ── */}
-            <Dialog open={showCargoModal} onOpenChange={open => { if (!open) { setShowCargoModal(false); resetCargo(); } }}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Nuevo cargo laboral</DialogTitle>
-                    </DialogHeader>
-                    <form onSubmit={submitCargo} className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Nombre del cargo</Label>
-                            <Input value={cargoData.nombre} onChange={e => setCargoData("nombre", e.target.value)} placeholder="Ej: Operador, Supervisor..." />
-                            {cargoErrors.nombre && <p className="text-xs text-red-500">{cargoErrors.nombre}</p>}
-                        </div>
-                        <div className="flex justify-end gap-2">
-                            <Button type="button" variant="outline" onClick={() => { setShowCargoModal(false); resetCargo(); }} disabled={processingCargo}>Cancelar</Button>
-                            <Button type="submit" disabled={processingCargo}>{processingCargo ? "Guardando..." : "Guardar cargo"}</Button>
-                        </div>
-                    </form>
                 </DialogContent>
             </Dialog>
         </AdminLayout>

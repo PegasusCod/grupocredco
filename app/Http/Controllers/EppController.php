@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
-
+use Illuminate\Support\Facades\Storage;
 class EppController extends Controller
 {
     /**
@@ -25,7 +25,7 @@ class EppController extends Controller
     {
         $epps = EppItem::with([
             'categoria',
-            'skus' => fn ($q) => $q->with('talla', 'stocks'),
+            'skus' => fn ($q) => $q->with('talla', 'stocks.almacen.proyecto'),
         ])
             ->where('activo', true)
             ->orderBy('nombre')
@@ -44,7 +44,7 @@ class EppController extends Controller
         $almacenes = Almacen::where('activo', true)
             ->where('tipo_almacen', 'OPERATIVO')
             ->with('proyecto')
-            ->get(['id', 'nombre', 'proyecto_id']);
+            ->get(['id', 'nombre', 'tipo_almacen'/* , 'proyecto_id' */]);
 
         return Inertia::render('EPP/Index', [
             'epps'       => $epps,
@@ -81,9 +81,17 @@ class EppController extends Controller
             'tallas_stock.*.talla_id'   => 'required|exists:tallas,id',
             'tallas_stock.*.almacen_id' => 'required|exists:almacenes,id',
             'tallas_stock.*.cantidad'   => 'required|integer|min:0',
+            'imagen_url'       => 'nullable|image|max:2048',
         ]);
 
         $usaTallas = (bool) $data['usa_tallas'];
+
+        if ($request->hasFile('imagen_url')) {
+            $data['imagen_url'] = $request->file('imagen_url')
+            ->store('epp_images', 'public');
+        }
+
+        /* unset($validated['imagen_url']); */
 
         if (!$usaTallas && empty($data['almacen_id']) && ($data['stock_inicial'] ?? 0) > 0) {
             throw ValidationException::withMessages([
@@ -98,6 +106,7 @@ class EppController extends Controller
                 'marca'           => $data['marca'] ?? null,
                 'unidad_medida'   => $data['unidad_medida'],
                 'usa_tallas'      => $usaTallas,
+                'imagen_url'       => $data['imagen_url'] ?? null,
                 'vida_util_meses' => $data['vida_util_meses'] ?? null,
                 'activo'          => true,
             ]);
@@ -138,7 +147,7 @@ class EppController extends Controller
             }
         });
 
-        return redirect()->route('epp.index')->with('success', 'EPP registrado exitosamente.');
+        return back()->with('success', 'EPP registrado exitosamente.');
     }
 
     /**
@@ -169,15 +178,26 @@ class EppController extends Controller
             'unidad_medida'   => 'required|string|max:20',
             'stock_minimo'    => 'required|integer|min:0',
             'vida_util_meses' => 'nullable|integer|min:1',
+            'imagen_url'       => 'nullable|image|max:2048',
             'activo'          => 'boolean',
         ]);
+
+        if ($request->hasFile('imagen_url')) {
+            if ($epp->imagen_url) {
+                Storage::disk('public')->delete($epp->imagen_url);
+            }
+            $data['imagen_url'] = $request->file('imagen_url')
+                ->store('epp_images', 'public');
+        }else {
+            unset($data['imagen_url']);
+        }
 
         $epp->update($data);
 
         StockAlmacen::whereHas('sku', fn ($q) => $q->where('epp_item_id', $epp->id))
             ->update(['stock_minimo' => $data['stock_minimo']]);
 
-        return redirect()->route('epp.index')->with('success', 'EPP actualizado correctamente.');
+        return back()->with('success', 'EPP actualizado correctamente.');
     }
 
     /**
@@ -200,7 +220,7 @@ class EppController extends Controller
                 $epp->update(['activo' => false]);
             });
 
-            return redirect()->route('epp.index')->with('success', 'EPP desactivado correctamente.');
+            return back()->with('success', 'EPP desactivado correctamente.');
         } catch (QueryException) {
             return back()->with('error', 'No se puede eliminar este EPP porque tiene movimientos relacionados.');
         }
@@ -208,7 +228,7 @@ class EppController extends Controller
 
     private function mapEpp(EppItem $item): array
     {
-        $skusMapeados = $item->skus->map(function (EppSku $sku) {
+        $skusMapeados = $item->skus ? $item->skus->map(function (EppSku $sku) {
             $stockDisponible = $sku->stocks->where('estado_stock', 'DISPONIBLE')->sum('cantidad_actual');
 
             return [
@@ -219,12 +239,14 @@ class EppController extends Controller
                 'stock_disponible' => (int) $stockDisponible,
                 'stocks_por_almacen' => $sku->stocks->map(fn ($s) => [
                     'almacen_id'      => $s->almacen_id,
+                    'almacen_nombre'  => $s->almacen?->nombre,
+                    'proyecto_nombre' => $s->almacen?->proyecto?->nombre,
                     'estado_stock'    => $s->estado_stock,
                     'cantidad_actual' => $s->cantidad_actual,
                     'stock_minimo'    => $s->stock_minimo,
                 ])->values(),
             ];
-        })->values();
+        })->values(): collect();
 
         $stockTotal = $skusMapeados->sum('stock_disponible');
 
@@ -237,6 +259,9 @@ class EppController extends Controller
             'categoria_id'    => $item->categoria_id,
             'unidad_medida'   => $item->unidad_medida,
             'usa_tallas'      => (bool) $item->usa_tallas,
+            'foto_url'        => $item->imagen_url
+                    ? Storage::url($item->imagen_url)
+                    : null,
             'vida_util_meses' => $item->vida_util_meses,
             'stock'           => $stockTotal,
             'stock_minimo'    => $this->getStockMinimo($item),

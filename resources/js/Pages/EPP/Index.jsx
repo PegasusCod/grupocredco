@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AdminLayout from "@/Layouts/AdminLayout";
 import { Head, useForm, router, usePage } from "@inertiajs/react";
-import { Search, Plus, Edit, Trash2, Eye, HardHat, X, Package, AlertTriangle, Filter } from "lucide-react";
+import {
+    Search, Plus, Edit, Trash2, Eye, HardHat, X,
+    Package, AlertTriangle, Camera, Upload, Warehouse,
+    Tag, Ruler, ShieldCheck, Clock, ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -12,124 +15,197 @@ import { Badge } from "@/components/ui/badge";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const ESTADO_CONFIG = {
-    DISPONIBLE: { label: "Disponible", badge: "bg-green-500 text-white",    num: "text-green-600",  bar: "bg-green-600"  },
-    BAJO_STOCK: { label: "Bajo stock", badge: "bg-orange-500 text-white",   num: "text-orange-600", bar: "bg-orange-600" },
-    AGOTADO:    { label: "Agotado",    badge: "bg-red-500 text-white",      num: "text-red-600",    bar: "bg-red-600"    },
+    DISPONIBLE: {
+        label: "Disponible",
+        badge: "bg-emerald-500 text-white",
+        num: "text-emerald-600",
+        bar: "bg-emerald-500",
+        ring: "ring-emerald-200",
+        bg: "bg-emerald-50",
+    },
+    BAJO_STOCK: {
+        label: "Bajo stock",
+        badge: "bg-amber-500 text-white",
+        num: "text-amber-600",
+        bar: "bg-amber-500",
+        ring: "ring-amber-200",
+        bg: "bg-amber-50",
+    },
+    AGOTADO: {
+        label: "Agotado",
+        badge: "bg-red-500 text-white",
+        num: "text-red-600",
+        bar: "bg-red-500",
+        ring: "ring-red-200",
+        bg: "bg-red-50",
+    },
 };
+
+// ── Imagen EPP ────────────────────────────────────────────────────────────────
+function EppImage({ src, nombre, size = "md" }) {
+    const sizes = { sm: "w-12 h-12", md: "w-20 h-20", lg: "w-24 h-24" };
+    if (src) {
+        return (
+            <img src={src} alt={nombre}
+                className={`${sizes[size]} object-cover rounded-xl`}
+                onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }} />
+        );
+    }
+    return (
+        <div className={`${sizes[size]} rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center`}>
+            <HardHat className={`${size === "lg" ? "w-10 h-10" : size === "md" ? "w-8 h-8" : "w-6 h-6"} text-slate-400`} />
+        </div>
+    );
+}
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function EppIndex({
-    epps       = [],   // mapeados por EppController::mapEpp()
-    categorias = [],   // EppCategoria[]  { id, nombre }
-    tallas     = [],   // Talla[]         { id, codigo, nombre }
-    almacenes  = [],   // Almacen[]       { id, nombre, proyecto_id }
+    epps = [],
+    categorias = [],
+    tallas = [],
+    almacenes = [],
 }) {
     const { flash = {} } = usePage().props;
+    const fotoRef = useRef(null);
 
-    const [searchTerm, setSearchTerm]           = useState("");
+    const [searchTerm, setSearchTerm] = useState("");
+    const [selectedAlmacen, setSelectedAlmacen] = useState("");
     const [selectedCategoria, setSelectedCategoria] = useState("todas");
-    const [selectedEstado, setSelectedEstado]   = useState("todos");
-    const [selectedEPP, setSelectedEPP]         = useState(null);
-    const [showFormModal, setShowFormModal]     = useState(false);
-    const [editingEPP, setEditingEPP]           = useState(null);
+    const [selectedEstado, setSelectedEstado] = useState("todos");
+    const [selectedEPP, setSelectedEPP] = useState(null);
+    const [showFormModal, setShowFormModal] = useState(false);
+    const [editingEPP, setEditingEPP] = useState(null);
+    const [fotoPreview, setFotoPreview] = useState(null);
+
+    // Almacenes operativos solamente (excluye segregación)
+    const almacenesOperativos = almacenes.filter(a => a.tipo_almacen === "OPERATIVO");
+
+    // Default: Obras Civiles, luego primer OPERATIVO, luego cualquiera
+    useEffect(() => {
+        if (!selectedAlmacen && almacenes.length > 0) {
+            const def = almacenesOperativos.find(a =>
+                a.nombre.toLowerCase().includes("obras civiles")
+            ) ?? almacenesOperativos[0] ?? almacenes[0];
+            if (def) setSelectedAlmacen(String(def.id));
+        }
+    }, [almacenes]);
 
     // ── Formulario ────────────────────────────────────────────────────────────
 
     const emptyForm = {
-        nombre:          "",
-        categoria_id:    "",   // ← FK a epp_categorias
-        marca:           "",
-        unidad_medida:   "UND",
-        stock_minimo:    10,
-        vida_util_meses: "",
-        usa_tallas:      false,
-        // Sin tallas: stock inicial en un almacén
-        almacen_id:      "",
-        stock_inicial:   0,
-        // Con tallas: array [{talla_id, almacen_id, cantidad}]
-        tallas_stock:    [],
+        nombre: "", categoria_id: "", marca: "",
+        unidad_medida: "UND", stock_minimo: 10,
+        vida_util_meses: "", usa_tallas: false,
+        almacen_id: "", stock_inicial: 0, tallas_stock: [],
+        imagen_url: null,
     };
 
     const { data, setData, post, put, processing, reset, clearErrors, errors } = useForm(emptyForm);
 
     const openCreate = () => {
-        setEditingEPP(null);
-        setData({ ...emptyForm, tallas_stock: [] });
-        clearErrors();
-        setShowFormModal(true);
+        setEditingEPP(null); setFotoPreview(null);
+        setData({ ...emptyForm, tallas_stock: [] }); clearErrors(); setShowFormModal(true);
     };
 
     const openEdit = (epp) => {
-        setEditingEPP(epp);
+        setEditingEPP(epp); setFotoPreview(epp.foto_url ?? null);
         setData({
-            nombre:          epp.nombre          ?? "",
-            categoria_id:    epp.categoria_id    ? String(epp.categoria_id) : "",
-            marca:           epp.marca           ?? "",
-            unidad_medida:   epp.unidad_medida   ?? "UND",
-            stock_minimo:    epp.stock_minimo     ?? 10,
-            vida_util_meses: epp.vida_util_meses ?? "",
-            usa_tallas:      !!epp.usa_tallas,
-            almacen_id:      "",
-            stock_inicial:   0,
-            tallas_stock:    [],
+            nombre: epp.nombre ?? "", categoria_id: epp.categoria_id ? String(epp.categoria_id) : "",
+            marca: epp.marca ?? "", unidad_medida: epp.unidad_medida ?? "UND",
+            stock_minimo: epp.stock_minimo ?? 10, vida_util_meses: epp.vida_util_meses ?? "",
+            usa_tallas: !!epp.usa_tallas, almacen_id: "", stock_inicial: 0, tallas_stock: [], imagen_url: null,
         });
-        clearErrors();
-        setShowFormModal(true);
+        clearErrors(); setShowFormModal(true);
     };
 
     const closeFormModal = () => {
-        setShowFormModal(false);
-        setEditingEPP(null);
-        reset();
-        clearErrors();
+        setShowFormModal(false); setEditingEPP(null);
+        setFotoPreview(null); reset(); clearErrors();
+    };
+
+    const handleFotoChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setData("imagen_url", file);
+        setFotoPreview(URL.createObjectURL(file));
     };
 
     const submit = (e) => {
         e.preventDefault();
         if (editingEPP) {
-            put(route("epp.update", editingEPP.id), { preserveScroll: true, onSuccess: closeFormModal });
+            router.post(route("epp.update", editingEPP.id), {
+                ...data,
+                _method: "PUT",
+            }, {
+                preserveScroll: true,
+                forceFormData: true,
+                onSuccess: closeFormModal,
+            });
         } else {
-            post(route("epp.store"), { preserveScroll: true, onSuccess: closeFormModal });
+            post(route("epp.store"), {
+                preserveScroll: true,
+                onSuccess: closeFormModal,
+                forceFormData: true,
+            });
         }
     };
+
 
     const handleDelete = (epp) => {
         if (!confirm(`¿Desactivar "${epp.nombre}"?`)) return;
         router.delete(route("epp.destroy", epp.id), { preserveScroll: true });
     };
 
-    // Gestión de tallas_stock para el formulario
-    const addTallaStock = () => {
-        setData("tallas_stock", [...data.tallas_stock, { talla_id: "", almacen_id: "", cantidad: 0 }]);
-    };
-    const removeTallaStock = (i) => {
-        setData("tallas_stock", data.tallas_stock.filter((_, idx) => idx !== i));
-    };
-    const updateTallaStock = (i, field, value) => {
-        const arr = [...data.tallas_stock];
-        arr[i] = { ...arr[i], [field]: value };
-        setData("tallas_stock", arr);
+    const addTallaStock = () => setData("tallas_stock", [...data.tallas_stock, { talla_id: "", almacen_id: "", cantidad: 0 }]);
+    const removeTallaStock = (i) => setData("tallas_stock", data.tallas_stock.filter((_, idx) => idx !== i));
+    const updateTallaStock = (i, f, v) => {
+        const arr = [...data.tallas_stock]; arr[i] = { ...arr[i], [f]: v }; setData("tallas_stock", arr);
     };
 
-    // ── Filtros locales ───────────────────────────────────────────────────────
+    // ── Filtros ───────────────────────────────────────────────────────────────
 
-    const filtered = useMemo(() => epps.filter(epp => {
-        const term = searchTerm.trim().toLowerCase();
-        const matchSearch = !term || epp.nombre.toLowerCase().includes(term)
-            || epp.codigo.toLowerCase().includes(term)
-            || (epp.marca ?? "").toLowerCase().includes(term);
-        const matchCat    = selectedCategoria === "todas" || String(epp.categoria_id) === String(selectedCategoria);
-        const matchEstado = selectedEstado === "todos"    || epp.estado === selectedEstado;
-        return matchSearch && matchCat && matchEstado;
-    }), [epps, searchTerm, selectedCategoria, selectedEstado]);
+    const filtered = useMemo(() => {
+        return epps.map(epp => {
+            if (!selectedAlmacen) return epp;
+            const skusFiltrados = (epp.skus ?? [])
+                .map(sku => ({
+                    ...sku,
+                    stocks_por_almacen: (sku.stocks_por_almacen ?? [])
+                        .filter(s => String(s.almacen_id) === String(selectedAlmacen)),
+                }))
+                .filter(sku => sku.stocks_por_almacen.length > 0);
+
+            const stockAlmacen = skusFiltrados.reduce((sum, sku) =>
+                sum + sku.stocks_por_almacen
+                    .filter(s => s.estado_stock === "DISPONIBLE")
+                    .reduce((a, b) => a + (b.cantidad_actual || 0), 0), 0);
+
+            let estado = "DISPONIBLE";
+            if (stockAlmacen === 0) estado = "AGOTADO";
+            else if (stockAlmacen <= epp.stock_minimo) estado = "BAJO_STOCK";
+
+            return { ...epp, skus: skusFiltrados, stock: stockAlmacen, estado };
+        }).filter(epp => {
+            if (selectedAlmacen && (epp.skus ?? []).length === 0) return false;
+            const term = searchTerm.trim().toLowerCase();
+            const matchSearch = !term || epp.nombre.toLowerCase().includes(term)
+                || epp.codigo.toLowerCase().includes(term)
+                || (epp.marca ?? "").toLowerCase().includes(term);
+            const matchCat = selectedCategoria === "todas" || String(epp.categoria_id) === String(selectedCategoria);
+            const matchEstado = selectedEstado === "todos" || epp.estado === selectedEstado;
+            return matchSearch && matchCat && matchEstado;
+        });
+    }, [epps, searchTerm, selectedCategoria, selectedEstado, selectedAlmacen]);
 
     const stats = useMemo(() => ({
-        total:      epps.reduce((s, e) => s + (e.stock || 0), 0),
-        bajo_stock: epps.filter(e => e.estado === "BAJO_STOCK").length,
-        agotados:   epps.filter(e => e.estado === "AGOTADO").length,
-        disponibles: epps.filter(e => e.estado === "DISPONIBLE").length,
-    }), [epps]);
+        total: filtered.reduce((s, e) => s + (e.stock || 0), 0),
+        bajo_stock: filtered.filter(e => e.estado === "BAJO_STOCK").length,
+        agotados: filtered.filter(e => e.estado === "AGOTADO").length,
+        disponibles: filtered.filter(e => e.estado === "DISPONIBLE").length,
+    }), [filtered]);
+
+    const almacenActivo = almacenes.find(a => String(a.id) === String(selectedAlmacen));
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -137,57 +213,88 @@ export default function EppIndex({
         <AdminLayout>
             <Head title="EPP Disponibles" />
 
-            <div className="flex-1 overflow-auto bg-gray-50">
-                {/* Header */}
-                <div className="bg-white border-b px-8 py-6 flex items-center justify-between">
+            <div className="flex-1 overflow-auto bg-slate-50/60">
+
+                {/* ── Header ── */}
+                <div className="bg-white border-b px-8 py-5 flex items-center justify-between">
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-900">EPP Disponibles</h2>
-                        <p className="text-gray-600 mt-1">Catálogo de equipos de protección personal</p>
+                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">EPP Disponibles</h2>
+                        <p className="text-slate-500 mt-0.5 text-sm">Catálogo de equipos de protección personal</p>
                     </div>
-                    <Button onClick={openCreate} className="gap-2">
-                        <Plus className="w-5 h-5" /> Nuevo EPP
+                    <Button onClick={openCreate} className="gap-2 bg-slate-900 hover:bg-slate-700 text-white shadow">
+                        <Plus className="w-4 h-4" /> Nuevo EPP
                     </Button>
                 </div>
 
-                <div className="p-8 space-y-6">
+                <div className="p-8 space-y-5">
+
                     {/* Flash */}
-                    {flash.success && <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-green-800">{flash.success}</div>}
-                    {flash.error   && <div className="rounded-xl border border-red-200   bg-red-50   px-4 py-3 text-red-800"  >{flash.error}</div>}
+                    {flash.success && (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 text-sm flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 shrink-0" /> {flash.success}
+                        </div>
+                    )}
+                    {flash.error && (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800 text-sm flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 shrink-0" /> {flash.error}
+                        </div>
+                    )}
+
+                    {/* Banner almacén activo */}
+                    {almacenActivo && (
+                        <div className="rounded-xl bg-blue-600 px-5 py-3 text-white flex items-center gap-3 shadow-sm">
+                            <Warehouse className="w-5 h-5 opacity-80" />
+                            <span className="text-sm">Mostrando stock de:</span>
+                            <span className="font-bold">{almacenActivo.nombre}</span>
+                        </div>
+                    )}
 
                     {/* KPIs */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {[
-                            { label: "Total en stock",  value: stats.total,       icon: Package,       cls: "" },
-                            { label: "Bajo stock",      value: stats.bajo_stock,  icon: AlertTriangle, cls: "text-orange-600" },
-                            { label: "Agotados",        value: stats.agotados,    icon: AlertTriangle, cls: "text-red-600" },
-                            { label: "Disponibles",     value: stats.disponibles, icon: HardHat,       cls: "text-blue-600" },
-                        ].map(({ label, value, icon: Icon, cls }) => (
-                            <Card key={label}>
+                            { label: "Total en stock", value: stats.total, color: "text-slate-800", icon: Package },
+                            { label: "Bajo stock", value: stats.bajo_stock, color: "text-amber-600", icon: AlertTriangle },
+                            { label: "Agotados", value: stats.agotados, color: "text-red-600", icon: AlertTriangle },
+                            { label: "Disponibles", value: stats.disponibles, color: "text-emerald-600", icon: ShieldCheck },
+                        ].map(({ label, value, color, icon: Icon }) => (
+                            <Card key={label} className="border shadow-sm">
                                 <CardContent className="p-5 flex items-center justify-between">
                                     <div>
-                                        <p className="text-sm text-muted-foreground">{label}</p>
-                                        <p className={`text-3xl font-bold ${cls}`}>{value}</p>
+                                        <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{label}</p>
+                                        <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
                                     </div>
-                                    <Icon className={`w-6 h-6 ${cls || "text-muted-foreground"}`} />
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-slate-100`}>
+                                        <Icon className={`w-5 h-5 ${color}`} />
+                                    </div>
                                 </CardContent>
                             </Card>
                         ))}
                     </div>
 
                     {/* Filtros */}
-                    <Card>
-                        <CardContent className="p-5">
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <div className="md:col-span-2 relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                    <Input className="pl-9" placeholder="Nombre, código, marca..."
+                    <Card className="border shadow-sm">
+                        <CardContent className="p-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                <div className="lg:col-span-1 relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <Input className="pl-9 h-10" placeholder="Nombre, código, marca..."
                                         value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                                 </div>
+
+                                <select value={selectedAlmacen} onChange={e => setSelectedAlmacen(e.target.value)}
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+                                    <option value="">Todos los almacenes</option>
+                                    {almacenesOperativos.map(a => (
+                                        <option key={a.id} value={a.id}>{a.nombre}</option>
+                                    ))}
+                                </select>
+
                                 <select value={selectedCategoria} onChange={e => setSelectedCategoria(e.target.value)}
                                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                                     <option value="todas">Todas las categorías</option>
                                     {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                 </select>
+
                                 <select value={selectedEstado} onChange={e => setSelectedEstado(e.target.value)}
                                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
                                     <option value="todos">Todos los estados</option>
@@ -201,82 +308,124 @@ export default function EppIndex({
 
                     {/* Grid de tarjetas */}
                     <div>
-                        <p className="text-sm text-muted-foreground mb-4">
-                            Mostrando {filtered.length} de {epps.length} equipos
+                        <p className="text-sm text-slate-500 mb-4 font-medium">
+                            {filtered.length} equipo{filtered.length !== 1 ? "s" : ""} encontrado{filtered.length !== 1 ? "s" : ""}
+                            {epps.length !== filtered.length && ` de ${epps.length}`}
                         </p>
 
                         {filtered.length === 0 ? (
-                            <Card><CardContent className="py-16 text-center text-muted-foreground">
-                                <HardHat className="w-14 h-14 mx-auto mb-3 opacity-30" />
-                                <p>No se encontraron equipos con los filtros actuales</p>
-                            </CardContent></Card>
+                            <Card className="border border-dashed">
+                                <CardContent className="py-20 text-center text-slate-400">
+                                    <HardHat className="w-14 h-14 mx-auto mb-4 opacity-20" />
+                                    <p className="font-medium">No se encontraron equipos</p>
+                                    <p className="text-sm mt-1">Intenta con otros filtros</p>
+                                </CardContent>
+                            </Card>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                                 {filtered.map(epp => {
                                     const cfg = ESTADO_CONFIG[epp.estado] ?? ESTADO_CONFIG.DISPONIBLE;
                                     const pct = epp.stock_minimo > 0
-                                        ? Math.min((epp.stock / epp.stock_minimo) * 100, 100)
-                                        : 100;
+                                        ? Math.min((epp.stock / epp.stock_minimo) * 100, 100) : 100;
 
                                     return (
-                                        <div key={epp.id} className="bg-white rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:shadow-lg transition-all overflow-hidden group">
-                                            {/* Imagen */}
-                                            <div className="h-40 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center relative">
-                                                <HardHat className="w-20 h-20 text-blue-600 group-hover:scale-110 transition-transform" />
-                                                <span className="absolute top-3 left-3 font-mono text-xs bg-white/80 px-2 py-1 rounded">{epp.codigo}</span>
-                                                <span className={`absolute top-3 right-3 px-2 py-1 text-xs font-semibold rounded-full ${cfg.badge}`}>{cfg.label}</span>
+                                        <div key={epp.id}
+                                            className="bg-white rounded-2xl border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col group">
+
+                                            {/* ── Zona imagen ── */}
+                                            <div className="relative h-44 bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center overflow-hidden">
+                                                {epp.foto_url ? (
+                                                    <img src={epp.foto_url} alt={epp.nombre}
+                                                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                ) : (
+                                                    <div className="flex flex-col items-center gap-2 text-slate-300">
+                                                        <HardHat className="w-16 h-16 group-hover:scale-110 transition-transform duration-300" />
+                                                    </div>
+                                                )}
+                                                {/* Badges superpuestos */}
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                <span className="absolute top-3 left-3 font-mono text-[10px] bg-white/90 text-slate-600 px-2 py-1 rounded-md font-semibold shadow-sm">
+                                                    {epp.codigo}
+                                                </span>
+                                                <span className={`absolute top-3 right-3 px-2.5 py-1 text-[11px] font-bold rounded-full shadow-sm ${cfg.badge}`}>
+                                                    {cfg.label}
+                                                </span>
                                             </div>
 
-                                            {/* Body */}
-                                            <div className="p-4">
-                                                <h4 className="font-bold text-base text-gray-900 mb-3 line-clamp-2 min-h-[2.5rem]">{epp.nombre}</h4>
-
-                                                <div className="space-y-1.5 text-sm mb-3">
-                                                    {[["Marca", epp.marca], ["Categoría", epp.categoria], ["Unidad", epp.unidad_medida]].map(([l, v]) => (
-                                                        <div key={l} className="flex justify-between">
-                                                            <span className="text-muted-foreground">{l}:</span>
-                                                            <span className="font-medium">{v ?? "—"}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                            {/* ── Body ── */}
+                                            <div className="p-4 flex flex-col flex-1">
+                                                <h4 className="font-bold text-slate-900 mb-1 line-clamp-1">{epp.nombre}</h4>
+                                                <p className="text-xs text-slate-400 mb-3">{epp.categoria ?? "Sin categoría"} · {epp.marca ?? "—"}</p>
 
                                                 {/* Stock */}
-                                                <div className="border-t pt-3">
-                                                    <div className="flex justify-between mb-1">
-                                                        <span className="text-sm text-muted-foreground">Stock disponible</span>
-                                                        <span className="text-xs text-muted-foreground">Mín: {epp.stock_minimo}</span>
+                                                <div className="mt-auto">
+                                                    <div className="flex items-end justify-between mb-1">
+                                                        <span className="text-xs text-slate-500">Stock disponible</span>
+                                                        <span className="text-xs text-slate-400">Mín {epp.stock_minimo}</span>
                                                     </div>
-                                                    <p className={`text-2xl font-bold ${cfg.num} mb-1`}>{epp.stock}</p>
-                                                    <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3">
-                                                        <div className={`h-1.5 rounded-full ${cfg.bar}`} style={{ width: `${pct}%` }} />
+                                                    <div className="flex items-baseline gap-1 mb-2">
+                                                        <span className={`text-3xl font-black tabular-nums ${cfg.num}`}>{epp.stock}</span>
+                                                        <span className="text-xs text-slate-400 mb-1">{epp.unidad_medida}</span>
+                                                    </div>
+                                                    <div className="w-full bg-slate-100 rounded-full h-1.5 mb-3">
+                                                        <div className={`h-1.5 rounded-full transition-all ${cfg.bar}`} style={{ width: `${pct}%` }} />
                                                     </div>
 
-                                                    {/* Tallas (skus) */}
-                                                    {epp.usa_tallas && epp.skus?.length > 0 && (
-                                                        <div className="flex flex-wrap gap-1.5 mb-3">
-                                                            {epp.skus.slice(0, 4).map(s => (
-                                                                <span key={s.id} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">
-                                                                    {s.talla}: {s.stock_disponible}
-                                                                </span>
-                                                            ))}
-                                                            {epp.skus.length > 4 && (
-                                                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">+{epp.skus.length - 4}</span>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                    {/* Desglose por talla (solo si usa tallas) */}
+                                                    {epp.usa_tallas && (epp.skus ?? []).length > 0 && (() => {
+                                                        const tallasConStock = (epp.skus ?? [])
+                                                            .map(sku => ({
+                                                                nombre: sku.talla_nombre,
+                                                                qty: (sku.stocks_por_almacen ?? [])
+                                                                    .filter(s => s.estado_stock === "DISPONIBLE")
+                                                                    .reduce((s, b) => s + (b.cantidad_actual || 0), 0),
+                                                            }))
+                                                            .filter(t => t.qty > 0);
 
-                                                {/* Acciones */}
-                                                <div className="flex gap-2 pt-2 border-t">
-                                                    <Button size="sm" variant="outline" className="flex-1 gap-1" onClick={() => setSelectedEPP(epp)}>
-                                                        <Eye className="w-3.5 h-3.5" /> Ver
-                                                    </Button>
-                                                    <Button size="sm" variant="outline" className="gap-1 text-emerald-600" onClick={() => openEdit(epp)}>
-                                                        <Edit className="w-3.5 h-3.5" />
-                                                    </Button>
-                                                    <Button size="sm" variant="outline" className="gap-1 text-red-600" onClick={() => handleDelete(epp)}>
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </Button>
+                                                        const visibles = tallasConStock.slice(0, 4);
+                                                        const restantes = tallasConStock.length - 4;
+
+                                                        if (visibles.length === 0) return null;
+
+                                                        return (
+                                                            <div className="flex flex-wrap gap-1.5 mb-3">
+                                                                {visibles.map(t => (
+                                                                    <div key={t.nombre}
+                                                                        className="flex items-center gap-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                                                                        <span className="text-slate-500 font-medium">{t.nombre}</span>
+                                                                        <span className={`font-bold ${t.qty <= epp.stock_minimo ? "text-red-500" : "text-emerald-600"}`}>
+                                                                            {t.qty}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                                {restantes > 0 && (
+                                                                    <div className="flex items-center text-[11px] bg-blue-50 border border-blue-200 text-blue-600 rounded-lg px-2 py-1 font-semibold cursor-pointer"
+                                                                        onClick={() => setSelectedEPP(epp)}>
+                                                                        +{restantes} más
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Acciones */}
+                                                    <div className="flex gap-1.5 border-t pt-3">
+                                                        <Button size="sm" variant="outline"
+                                                            className="flex-1 h-8 text-xs gap-1 rounded-lg"
+                                                            onClick={() => setSelectedEPP(epp)}>
+                                                            <Eye className="w-3.5 h-3.5" /> Ver detalle
+                                                        </Button>
+                                                        <Button size="sm" variant="outline"
+                                                            className="h-8 w-8 p-0 rounded-lg text-blue-600 border-blue-100 hover:bg-blue-50"
+                                                            onClick={() => openEdit(epp)}>
+                                                            <Edit className="w-3.5 h-3.5" />
+                                                        </Button>
+                                                        <Button size="sm" variant="outline"
+                                                            className="h-8 w-8 p-0 rounded-lg text-red-500 border-red-100 hover:bg-red-50"
+                                                            onClick={() => handleDelete(epp)}>
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -288,214 +437,364 @@ export default function EppIndex({
                 </div>
             </div>
 
-            {/* ── Modal Detalle EPP ── */}
+            {/* ═══════════════ MODAL DETALLE ═══════════════ */}
             {selectedEPP && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl max-w-xl w-full max-h-[85vh] overflow-y-auto">
-                        <div className="p-5 border-b flex items-center justify-between sticky top-0 bg-white">
-                            <h3 className="text-lg font-bold">Detalle del EPP</h3>
-                            <Button variant="ghost" size="icon" onClick={() => setSelectedEPP(null)}><X className="w-5 h-5" /></Button>
-                        </div>
-                        <div className="p-5 space-y-4">
-                            <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-xl">
-                                <div className="w-16 h-16 bg-blue-600 rounded-xl flex items-center justify-center">
-                                    <HardHat className="w-8 h-8 text-white" />
-                                </div>
-                                <div className="flex-1">
-                                    <h4 className="text-xl font-bold">{selectedEPP.nombre}</h4>
-                                    <p className="text-sm text-muted-foreground">{selectedEPP.codigo} · {selectedEPP.marca}</p>
-                                </div>
-                                <span className={`px-3 py-1 text-sm font-semibold rounded-full ${ESTADO_CONFIG[selectedEPP.estado]?.badge}`}>
-                                    {ESTADO_CONFIG[selectedEPP.estado]?.label}
-                                </span>
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+
+                        {/* Header modal */}
+                        <div className="relative">
+                            {/* Imagen de fondo */}
+                            <div className="h-40 bg-gradient-to-br from-slate-700 to-slate-900 overflow-hidden">
+                                {selectedEPP.foto_url ? (
+                                    <img src={selectedEPP.foto_url} alt={selectedEPP.nombre}
+                                        className="w-full h-full object-cover opacity-60" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                        <HardHat className="w-20 h-20 text-white/20" />
+                                    </div>
+                                )}
+                                {/* Overlay gradiente */}
+                                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/30 to-transparent" />
                             </div>
 
+                            {/* Info superpuesta */}
+                            <div className="absolute bottom-0 left-0 right-0 p-4">
+                                <div className="flex items-end justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <span className="text-slate-400 text-xs font-mono">{selectedEPP.codigo}</span>
+                                        <h3 className="text-white text-lg font-bold leading-tight truncate">{selectedEPP.nombre}</h3>
+                                        <p className="text-slate-300 text-xs">{selectedEPP.marca ?? "Sin marca"}</p>
+                                    </div>
+                                    <span className={`shrink-0 px-3 py-1 text-xs font-bold rounded-full ${ESTADO_CONFIG[selectedEPP.estado]?.badge}`}>
+                                        {ESTADO_CONFIG[selectedEPP.estado]?.label}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Cerrar */}
+                            <button onClick={() => setSelectedEPP(null)}
+                                className="absolute top-3 right-3 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Body modal */}
+                        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+
+                            {/* Datos generales */}
                             <div className="grid grid-cols-2 gap-3">
                                 {[
-                                    ["Categoría",    selectedEPP.categoria],
-                                    ["Unidad",       selectedEPP.unidad_medida],
-                                    ["Vida útil",    selectedEPP.vida_util_meses ? `${selectedEPP.vida_util_meses} meses` : "—"],
-                                    ["Stock mínimo", selectedEPP.stock_minimo],
-                                ].map(([l, v]) => (
-                                    <div key={l} className="bg-gray-50 rounded-lg p-3">
-                                        <p className="text-xs text-muted-foreground">{l}</p>
-                                        <p className="font-semibold">{v}</p>
+                                    { icon: Tag, label: "Categoría", value: selectedEPP.categoria ?? "—" },
+                                    { icon: Ruler, label: "Unidad", value: selectedEPP.unidad_medida },
+                                    { icon: Clock, label: "Vida útil", value: selectedEPP.vida_util_meses ? `${selectedEPP.vida_util_meses} meses` : "—" },
+                                    { icon: Package, label: "Stock mín.", value: selectedEPP.stock_minimo },
+                                ].map(({ icon: Icon, label, value }) => (
+                                    <div key={label} className="rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center shrink-0">
+                                            <Icon className="w-4 h-4 text-slate-500" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-xs text-slate-400">{label}</p>
+                                            <p className="text-sm font-semibold text-slate-800 truncate">{value}</p>
+                                        </div>
                                     </div>
                                 ))}
-                                <div className="bg-green-50 rounded-lg p-3">
-                                    <p className="text-xs text-green-700">Stock total</p>
-                                    <p className="text-2xl font-bold text-green-900">{selectedEPP.stock}</p>
+                            </div>
+
+                            {/* Stock total */}
+                            <div className={`rounded-xl p-4 ${ESTADO_CONFIG[selectedEPP.estado]?.bg ?? "bg-slate-50"} border border-slate-100`}>
+                                <p className="text-xs text-slate-500 font-medium mb-1">Stock total disponible</p>
+                                <div className="flex items-baseline gap-2">
+                                    <span className={`text-4xl font-black tabular-nums ${ESTADO_CONFIG[selectedEPP.estado]?.num}`}>
+                                        {selectedEPP.stock}
+                                    </span>
+                                    <span className="text-sm text-slate-500">{selectedEPP.unidad_medida}</span>
                                 </div>
                             </div>
 
-                            {selectedEPP.usa_tallas && selectedEPP.skus?.length > 0 && (
-                                <div className="bg-gray-50 rounded-lg p-4">
-                                    <p className="text-sm font-medium text-muted-foreground mb-3">Desglose por talla / almacén</p>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                        {selectedEPP.skus.map(sku => (
-                                            <div key={sku.id} className="bg-white border rounded-lg p-2">
-                                                <p className="text-xs text-muted-foreground">Talla</p>
-                                                <p className="font-semibold">{sku.talla_nombre}</p>
-                                                <p className="text-sm text-blue-700">Stock: {sku.stock_disponible}</p>
-                                            </div>
-                                        ))}
+                            {/* Desglose por almacén / talla */}
+                            {/* Desglose solo por talla */}
+                            {selectedEPP.usa_tallas && (selectedEPP.skus ?? []).length > 0 && (
+                                <div>
+                                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                        Stock por talla
+                                    </p>
+
+                                    <div className="space-y-2">
+                                        {(selectedEPP.skus ?? []).map((sku) => {
+                                            const stockTotalTalla = (sku.stocks_por_almacen ?? [])
+                                                .filter((s) => s.estado_stock === "DISPONIBLE")
+                                                .reduce((total, s) => total + (Number(s.cantidad_actual) || 0), 0);
+
+                                            const stockMinimoTalla = (sku.stocks_por_almacen ?? [])
+                                                .reduce((min, s) => {
+                                                    const value = Number(s.stock_minimo) || 0;
+                                                    return min === null ? value : Math.min(min, value);
+                                                }, null);
+
+                                            return (
+                                                <div
+                                                    key={sku.id}
+                                                    className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3"
+                                                >
+                                                    <div>
+                                                        <p className="text-xs text-slate-400"></p>
+                                                        <p className="text-sm font-semibold text-slate-700">
+                                                            {sku.talla_nombre ?? "Sin talla"}
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="text-right">
+                                                        <p className="text-xs text-slate-400">Stock</p>
+                                                        <span
+                                                            className={`text-2xl font-black tabular-nums ${stockTotalTalla <= (stockMinimoTalla ?? 0)
+                                                                ? "text-red-500"
+                                                                : "text-emerald-600"
+                                                                }`}
+                                                        >
+                                                            {stockTotalTalla}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
                         </div>
-                        <div className="p-5 border-t flex justify-end gap-2 sticky bottom-0 bg-white">
-                            <Button variant="outline" onClick={() => setSelectedEPP(null)}>Cerrar</Button>
-                            <Button onClick={() => { setSelectedEPP(null); openEdit(selectedEPP); }}>Editar EPP</Button>
+
+                        {/* Footer modal */}
+                        <div className="p-4 border-t bg-slate-50 flex gap-2">
+                            <Button variant="outline" className="flex-1" onClick={() => setSelectedEPP(null)}>Cerrar</Button>
+                            <Button className="flex-1 bg-slate-900 hover:bg-slate-700 text-white"
+                                onClick={() => { const e = selectedEPP; setSelectedEPP(null); openEdit(e); }}>
+                                <Edit className="w-4 h-4 mr-2" /> Editar EPP
+                            </Button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ── Modal Crear / Editar EPP ── */}
-            <Dialog open={showFormModal} onOpenChange={open => !open && closeFormModal()}>
-                <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>{editingEPP ? "Editar EPP" : "Nuevo EPP"}</DialogTitle>
-                    </DialogHeader>
+            {/* ═══════════════ MODAL CREAR / EDITAR ═══════════════ */}
+            {showFormModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
 
-                    <form onSubmit={submit} className="space-y-5 p-1">
-                        <div className="grid grid-cols-2 gap-4">
-                            {/* Nombre */}
-                            <div className="col-span-2 space-y-1.5">
-                                <Label>Nombre *</Label>
-                                <Input value={data.nombre} onChange={e => setData("nombre", e.target.value)} placeholder="Ej: Botas de Seguridad" />
-                                {errors.nombre && <p className="text-xs text-red-500">{errors.nombre}</p>}
+                        {/* Header */}
+                        <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900">
+                                    {editingEPP ? "Editar EPP" : "Registrar nuevo EPP"}
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    {editingEPP ? `Código: ${editingEPP.codigo}` : "Completa los datos del equipo"}
+                                </p>
                             </div>
+                            <button onClick={closeFormModal}
+                                className="w-8 h-8 rounded-full bg-slate-200 hover:bg-slate-300 flex items-center justify-center transition-colors">
+                                <X className="w-4 h-4 text-slate-600" />
+                            </button>
+                        </div>
 
-                            {/* Categoría */}
-                            <div className="space-y-1.5">
-                                <Label>Categoría *</Label>
-                                <select value={data.categoria_id} onChange={e => setData("categoria_id", e.target.value)}
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                                    <option value="">Seleccionar...</option>
-                                    {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                                {errors.categoria_id && <p className="text-xs text-red-500">{errors.categoria_id}</p>}
-                            </div>
+                        <div className="overflow-y-auto flex-1 p-6">
+                            <form id="epp-form" onSubmit={submit} className="space-y-5">
 
-                            {/* Marca */}
-                            <div className="space-y-1.5">
-                                <Label>Marca</Label>
-                                <Input value={data.marca} onChange={e => setData("marca", e.target.value)} />
-                            </div>
-
-                            {/* Unidad */}
-                            <div className="space-y-1.5">
-                                <Label>Unidad de medida *</Label>
-                                <select value={data.unidad_medida} onChange={e => setData("unidad_medida", e.target.value)}
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                                    {["UND","PAR","CAJA","PACK","SET","ROLLO","M"].map(u => <option key={u}>{u}</option>)}
-                                </select>
-                            </div>
-
-                            {/* Stock mínimo */}
-                            <div className="space-y-1.5">
-                                <Label>Stock mínimo *</Label>
-                                <Input type="number" min="0" value={data.stock_minimo}
-                                    onChange={e => setData("stock_minimo", Number(e.target.value))} />
-                            </div>
-
-                            {/* Vida útil */}
-                            <div className="space-y-1.5">
-                                <Label>Vida útil (meses)</Label>
-                                <Input type="number" min="1" value={data.vida_util_meses}
-                                    onChange={e => setData("vida_util_meses", e.target.value)} placeholder="Ej: 6" />
-                            </div>
-
-                            {/* Usa tallas */}
-                            <div className="col-span-2">
-                                <label className="flex items-center gap-3 rounded-lg border p-4 cursor-pointer">
-                                    <input type="checkbox" checked={data.usa_tallas}
-                                        onChange={e => { setData("usa_tallas", e.target.checked); setData("tallas_stock", []); }}
-                                        className="h-4 w-4" />
-                                    <div>
-                                        <p className="font-medium">Este EPP usa tallas</p>
-                                        <p className="text-sm text-muted-foreground">Ej: calzado, ropa, guantes por talla</p>
+                                {/* Foto */}
+                                <div className="flex items-center gap-4">
+                                    <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-200 overflow-hidden flex items-center justify-center bg-slate-50 shrink-0">
+                                        {fotoPreview ? (
+                                            <img src={fotoPreview} alt="Preview"
+                                                className="w-full h-full object-cover" />
+                                        ) : (
+                                            <Camera className="w-8 h-8 text-slate-300" />
+                                        )}
                                     </div>
-                                </label>
-                            </div>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-slate-700 mb-1">Foto del EPP</p>
+                                        <p className="text-xs text-slate-400 mb-3">JPG, PNG o WEBP. Máx. 2 MB.</p>
+                                        <button type="button"
+                                            onClick={() => fotoRef.current?.click()}
+                                            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 transition-colors">
+                                            <Upload className="w-4 h-4" />
+                                            {fotoPreview ? "Cambiar foto" : "Subir foto"}
+                                        </button>
+                                        <input ref={fotoRef} type="file" accept="image/*"
+                                            onChange={handleFotoChange} className="hidden" />
+                                        {fotoPreview && (
+                                            <button type="button"
+                                                onClick={() => { setFotoPreview(null); setData("imagen_url", null); }}
+                                                className="mt-2 text-xs text-red-500 hover:underline">
+                                                Quitar foto
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
 
-                            {/* Sin tallas: almacén + stock inicial */}
-                            {!editingEPP && !data.usa_tallas && (
-                                <>
+                                <div className="h-px bg-slate-100" />
+
+                                {/* Campos principales */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="col-span-2 space-y-1.5">
+                                        <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Nombre *</Label>
+                                        <Input value={data.nombre}
+                                            onChange={e => setData("nombre", e.target.value)}
+                                            placeholder="Ej: Botas de Seguridad"
+                                            className="h-10" />
+                                        {errors.nombre && <p className="text-xs text-red-500">{errors.nombre}</p>}
+                                    </div>
+
                                     <div className="space-y-1.5">
-                                        <Label>Almacén de ingreso</Label>
-                                        <select value={data.almacen_id} onChange={e => setData("almacen_id", e.target.value)}
+                                        <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Categoría *</Label>
+                                        <select value={data.categoria_id}
+                                            onChange={e => setData("categoria_id", e.target.value)}
                                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                                            <option value="">Sin stock inicial</option>
-                                            {almacenes.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                                            <option value="">Seleccionar...</option>
+                                            {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                        </select>
+                                        {errors.categoria_id && <p className="text-xs text-red-500">{errors.categoria_id}</p>}
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Marca</Label>
+                                        <Input value={data.marca} onChange={e => setData("marca", e.target.value)} className="h-10" />
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Unidad *</Label>
+                                        <select value={data.unidad_medida}
+                                            onChange={e => setData("unidad_medida", e.target.value)}
+                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                                            {["UND", "PAR", "CAJA", "PACK", "SET", "ROLLO", "M"].map(u => <option key={u}>{u}</option>)}
                                         </select>
                                     </div>
+
                                     <div className="space-y-1.5">
-                                        <Label>Stock inicial</Label>
-                                        <Input type="number" min="0" value={data.stock_inicial}
-                                            onChange={e => setData("stock_inicial", Number(e.target.value))} />
+                                        <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Stock mínimo *</Label>
+                                        <Input type="number" min="0" value={data.stock_minimo}
+                                            onChange={e => setData("stock_minimo", Number(e.target.value))}
+                                            className="h-10" />
                                     </div>
-                                </>
-                            )}
 
-                            {/* Con tallas: tabla de tallas × almacén */}
-                            {!editingEPP && data.usa_tallas && (
-                                <div className="col-span-2 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <Label>Stock inicial por talla</Label>
-                                        <Button type="button" size="sm" variant="outline" onClick={addTallaStock}>
-                                            <Plus className="w-3.5 h-3.5 mr-1" /> Agregar talla
-                                        </Button>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Vida útil (meses)</Label>
+                                        <Input type="number" min="1" value={data.vida_util_meses}
+                                            onChange={e => setData("vida_util_meses", e.target.value)}
+                                            placeholder="Ej: 6" className="h-10" />
                                     </div>
-                                    {data.tallas_stock.map((ts, i) => (
-                                        <div key={i} className="grid grid-cols-[1fr_1fr_80px_32px] gap-2 items-end">
+
+                                    {/* Usa tallas */}
+                                    <div className="col-span-2">
+                                        <label className="flex items-center gap-3 rounded-xl border-2 border-slate-100 hover:border-slate-200 p-4 cursor-pointer transition-colors">
+                                            <input type="checkbox" checked={data.usa_tallas}
+                                                onChange={e => { setData("usa_tallas", e.target.checked); setData("tallas_stock", []); }}
+                                                className="h-4 w-4 accent-slate-800" />
                                             <div>
-                                                <Label className="text-xs">Talla</Label>
-                                                <select value={ts.talla_id} onChange={e => updateTallaStock(i, "talla_id", e.target.value)}
-                                                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm">
-                                                    <option value="">Talla...</option>
-                                                    {tallas.map(t => <option key={t.id} value={t.id}>{t.codigo}</option>)}
+                                                <p className="font-semibold text-slate-800">Este EPP usa tallas</p>
+                                                <p className="text-xs text-slate-400 mt-0.5">Ej: calzado, ropa, guantes por talla</p>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    {/* Sin tallas: stock inicial */}
+                                    {!editingEPP && !data.usa_tallas && (
+                                        <>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Almacén de ingreso</Label>
+                                                <select value={data.almacen_id}
+                                                    onChange={e => setData("almacen_id", e.target.value)}
+                                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                                                    <option value="">Sin stock inicial</option>
+                                                    {almacenes.filter(a => a.tipo_almacen === "OPERATIVO").map(a =>
+                                                        <option key={a.id} value={a.id}>{a.nombre}</option>
+                                                    )}
                                                 </select>
                                             </div>
-                                            <div>
-                                                <Label className="text-xs">Almacén</Label>
-                                                <select value={ts.almacen_id} onChange={e => updateTallaStock(i, "almacen_id", e.target.value)}
-                                                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-sm">
-                                                    <option value="">Almacén...</option>
-                                                    {almacenes.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-                                                </select>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Stock inicial</Label>
+                                                <Input type="number" min="0" value={data.stock_inicial}
+                                                    onChange={e => setData("stock_inicial", Number(e.target.value))}
+                                                    className="h-10" />
                                             </div>
-                                            <div>
-                                                <Label className="text-xs">Cant.</Label>
-                                                <Input type="number" min="0" value={ts.cantidad}
-                                                    onChange={e => updateTallaStock(i, "cantidad", Number(e.target.value))} className="h-9" />
+                                        </>
+                                    )}
+
+                                    {/* Con tallas */}
+                                    {!editingEPP && data.usa_tallas && (
+                                        <div className="col-span-2 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Stock inicial por talla</Label>
+                                                <Button type="button" size="sm" variant="outline" onClick={addTallaStock}
+                                                    className="h-8 text-xs gap-1">
+                                                    <Plus className="w-3 h-3" /> Agregar talla
+                                                </Button>
                                             </div>
-                                            <Button type="button" variant="ghost" size="icon" onClick={() => removeTallaStock(i)}>
-                                                <X className="w-4 h-4 text-red-500" />
-                                            </Button>
+                                            {data.tallas_stock.length === 0 && (
+                                                <p className="text-xs text-slate-400 text-center py-3 border-2 border-dashed border-slate-100 rounded-xl">
+                                                    Agrega al menos una talla con su stock inicial
+                                                </p>
+                                            )}
+                                            {data.tallas_stock.map((ts, i) => (
+                                                <div key={i} className="grid grid-cols-[1fr_1fr_80px_32px] gap-2 items-end bg-slate-50 p-3 rounded-xl">
+                                                    <div>
+                                                        <Label className="text-[10px] text-slate-500 uppercase">Talla</Label>
+                                                        <select value={ts.talla_id}
+                                                            onChange={e => updateTallaStock(i, "talla_id", e.target.value)}
+                                                            className="mt-1 flex h-9 w-full rounded-md border border-input bg-white px-2 py-1 text-sm">
+                                                            <option value="">Seleccionar...</option>
+                                                            {tallas.map(t => <option key={t.id} value={t.id}>{t.codigo}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-[10px] text-slate-500 uppercase">Almacén</Label>
+                                                        <select value={ts.almacen_id}
+                                                            onChange={e => updateTallaStock(i, "almacen_id", e.target.value)}
+                                                            className="mt-1 flex h-9 w-full rounded-md border border-input bg-white px-2 py-1 text-sm">
+                                                            <option value="">Seleccionar...</option>
+                                                            {almacenes.filter(a => a.tipo_almacen === "OPERATIVO").map(a =>
+                                                                <option key={a.id} value={a.id}>{a.nombre}</option>
+                                                            )}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <Label className="text-[10px] text-slate-500 uppercase">Cant.</Label>
+                                                        <Input type="number" min="0" value={ts.cantidad}
+                                                            onChange={e => updateTallaStock(i, "cantidad", Number(e.target.value))}
+                                                            className="mt-1 h-9" />
+                                                    </div>
+                                                    <button type="button" onClick={() => removeTallaStock(i)}
+                                                        className="h-9 w-8 flex items-center justify-center text-red-400 hover:text-red-600 transition-colors">
+                                                        <X className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
-                            )}
+                                    )}
 
-                            {/* Nota en edición */}
-                            {editingEPP && (
-                                <div className="col-span-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                                    Para modificar el stock usa <strong>Ingresos de EPP</strong>.
+                                    {/* Nota edición */}
+                                    {editingEPP && (
+                                        <div className="col-span-2 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
+                                            <Package className="w-4 h-4 shrink-0" />
+                                            Para modificar el stock usa <strong>Ingresos de EPP</strong>.
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            </form>
                         </div>
 
-                        <div className="flex justify-end gap-2 pt-2">
-                            <Button type="button" variant="outline" onClick={closeFormModal}>Cancelar</Button>
-                            <Button type="submit" disabled={processing}>
-                                {processing ? "Guardando..." : editingEPP ? "Actualizar" : "Registrar EPP"}
+                        {/* Footer */}
+                        <div className="px-6 py-4 border-t bg-slate-50 flex justify-end gap-2">
+                            <Button type="button" variant="outline" onClick={closeFormModal} className="px-6">
+                                Cancelar
+                            </Button>
+                            <Button type="submit" form="epp-form" disabled={processing}
+                                className="px-6 bg-slate-900 hover:bg-slate-700 text-white">
+                                {processing ? "Guardando..." : editingEPP ? "Actualizar EPP" : "Registrar EPP"}
                             </Button>
                         </div>
-                    </form>
-                </DialogContent>
-            </Dialog>
+                    </div>
+                </div>
+            )}
         </AdminLayout>
     );
 }

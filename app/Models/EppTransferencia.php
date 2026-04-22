@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EppTransferencia extends Model
 {
-    protected $table = 'epp_transferencia';
+    protected $table = 'epp_transferencias';
 
     protected $fillable = [
         'fecha_transferencia',
