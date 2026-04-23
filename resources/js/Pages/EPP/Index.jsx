@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import AdminLayout from "@/Layouts/AdminLayout";
 import { Head, useForm, router, usePage } from "@inertiajs/react";
 import {
@@ -58,6 +58,121 @@ function EppImage({ src, nombre, size = "md" }) {
     );
 }
 
+// ──  EppCard definido FUERA del componente principal ─────────────────────
+const EppCard = memo(({ epp, onView, onEdit, onDelete }) => {
+    const cfg = ESTADO_CONFIG[epp.estado] ?? ESTADO_CONFIG.DISPONIBLE;
+    const pct = epp.stock_minimo > 0
+        ? Math.min((epp.stock / epp.stock_minimo) * 100, 100)
+        : 100;
+
+    return (
+        <div
+            className="bg-white rounded-2xl border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col group">
+
+            {/* ── Zona imagen ── */}
+            <div className="relative h-44 bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center overflow-hidden">
+                {epp.foto_url ? (
+                    <img
+                        src={epp.foto_url}
+                        alt={epp.nombre}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                ) : (
+                    <div className="flex flex-col items-center gap-2 text-slate-300">
+                        <HardHat className="w-16 h-16 group-hover:scale-110 transition-transform duration-300" />
+                    </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <span className="absolute top-3 left-3 font-mono text-[10px] bg-white/90 text-slate-600 px-2 py-1 rounded-md font-semibold shadow-sm">
+                    {epp.codigo}
+                </span>
+                <span className={`absolute top-3 right-3 px-2.5 py-1 text-[11px] font-bold rounded-full shadow-sm ${cfg.badge}`}>
+                    {cfg.label}
+                </span>
+            </div>
+
+            {/* ── Body ── */}
+            <div className="p-4 flex flex-col flex-1">
+                <h4 className="font-bold text-slate-900 mb-1 line-clamp-1">{epp.nombre}</h4>
+                <p className="text-xs text-slate-400 mb-3">{epp.categoria ?? "Sin categoría"} · {epp.marca ?? "—"}</p>
+
+                <div className="mt-auto">
+                    <div className="flex items-end justify-between mb-1">
+                        <span className="text-xs text-slate-500">Stock disponible</span>
+                        <span className="text-xs text-slate-400">Mín {epp.stock_minimo}</span>
+                    </div>
+                    <div className="flex items-baseline gap-1 mb-2">
+                        <span className={`text-3xl font-black tabular-nums ${cfg.num}`}>{epp.stock}</span>
+                        <span className="text-xs text-slate-400 mb-1">{epp.unidad_medida}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 mb-3">
+                        <div className={`h-1.5 rounded-full transition-all ${cfg.bar}`} style={{ width: `${pct}%` }} />
+                    </div>
+
+                    {/* Desglose por talla */}
+                    {epp.usa_tallas && (epp.skus ?? []).length > 0 && (() => {
+                        const tallasConStock = (epp.skus ?? [])
+                            .map(sku => ({
+                                nombre: sku.talla_nombre,
+                                qty: (sku.stocks_por_almacen ?? [])
+                                    .filter(s => s.estado_stock === "DISPONIBLE")
+                                    .reduce((s, b) => s + (b.cantidad_actual || 0), 0),
+                            }))
+                            .filter(t => t.qty > 0);
+
+                        const visibles = tallasConStock.slice(0, 4);
+                        const restantes = tallasConStock.length - 4;
+
+                        if (visibles.length === 0) return null;
+
+                        return (
+                            <div className="flex flex-wrap gap-1.5 mb-3">
+                                {visibles.map(t => (
+                                    <div key={t.nombre}
+                                        className="flex items-center gap-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                                        <span className="text-slate-500 font-medium">{t.nombre}</span>
+                                        <span className={`font-bold ${t.qty <= epp.stock_minimo ? "text-red-500" : "text-emerald-600"}`}>
+                                            {t.qty}
+                                        </span>
+                                    </div>
+                                ))}
+                                {restantes > 0 && (
+                                    <div
+                                        className="flex items-center text-[11px] bg-blue-50 border border-blue-200 text-blue-600 rounded-lg px-2 py-1 font-semibold cursor-pointer"
+                                        onClick={() => onView(epp)}>
+                                        +{restantes} más
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+
+                    {/* Acciones */}
+                    <div className="flex gap-1.5 border-t pt-3">
+                        <Button size="sm" variant="outline"
+                            className="flex-1 h-8 text-xs gap-1 rounded-lg"
+                            onClick={() => onView(epp)}>
+                            <Eye className="w-3.5 h-3.5" /> Ver detalle
+                        </Button>
+                        <Button size="sm" variant="outline"
+                            className="h-8 w-8 p-0 rounded-lg text-blue-600 border-blue-100 hover:bg-blue-50"
+                            onClick={() => onEdit(epp)}>
+                            <Edit className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="sm" variant="outline"
+                            className="h-8 w-8 p-0 rounded-lg text-red-500 border-red-100 hover:bg-red-50"
+                            onClick={() => onDelete(epp)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+});
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function EppIndex({
@@ -69,19 +184,34 @@ export default function EppIndex({
     const { flash = {} } = usePage().props;
     const fotoRef = useRef(null);
 
-    const [searchTerm, setSearchTerm] = useState("");
-    const [selectedAlmacen, setSelectedAlmacen] = useState("");
+    const [searchInput, setSearchInput]       = useState("");   // valor visual del input
+    const [searchTerm, setSearchTerm]         = useState("");   // valor real usado en el filtro (con debounce)
+    const [selectedAlmacen, setSelectedAlmacen]   = useState("");
     const [selectedCategoria, setSelectedCategoria] = useState("todas");
-    const [selectedEstado, setSelectedEstado] = useState("todos");
-    const [selectedEPP, setSelectedEPP] = useState(null);
-    const [showFormModal, setShowFormModal] = useState(false);
-    const [editingEPP, setEditingEPP] = useState(null);
-    const [fotoPreview, setFotoPreview] = useState(null);
+    const [selectedEstado, setSelectedEstado]     = useState("todos");
+    const [selectedEPP, setSelectedEPP]       = useState(null);
+    const [showFormModal, setShowFormModal]   = useState(false);
+    const [editingEPP, setEditingEPP]         = useState(null);
+    const [fotoPreview, setFotoPreview]       = useState(null);
 
-    // Almacenes operativos solamente (excluye segregación)
-    const almacenesOperativos = almacenes.filter(a => a.tipo_almacen === "OPERATIVO");
+    // ── Debounce: espera 300ms tras el último keystroke para filtrar ──────────
+    useEffect(() => {
+        const timer = setTimeout(() => setSearchTerm(searchInput), 300);
+        return () => clearTimeout(timer);
+    }, [searchInput]);
 
-    // Default: Obras Civiles, luego primer OPERATIVO, luego cualquiera
+    // ── Memoizado fuera del render ────────────────────────────────────────────
+    const almacenesOperativos = useMemo(
+        () => almacenes.filter(a => a.tipo_almacen === "OPERATIVO"),
+        [almacenes]
+    );
+
+    const almacenActivo = useMemo(
+        () => almacenes.find(a => String(a.id) === String(selectedAlmacen)),
+        [almacenes, selectedAlmacen]
+    );
+
+    // Default almacén al montar
     useEffect(() => {
         if (!selectedAlmacen && almacenes.length > 0) {
             const def = almacenesOperativos.find(a =>
@@ -90,6 +220,15 @@ export default function EppIndex({
             if (def) setSelectedAlmacen(String(def.id));
         }
     }, [almacenes]);
+
+    // ── Handlers memoizados con useCallback ──────────────────────────────────
+    // NECESARIO para que memo() en EppCard funcione: si las funciones cambian
+    // de referencia en cada render, memo() no puede evitar el re-render.
+    const handleView   = useCallback((epp) => setSelectedEPP(epp), []);
+    const handleDelete = useCallback((epp) => {
+        if (!confirm(`¿Desactivar "${epp.nombre}"?`)) return;
+        router.delete(route("epp.destroy", epp.id), { preserveScroll: true });
+    }, []);
 
     // ── Formulario ────────────────────────────────────────────────────────────
 
@@ -101,14 +240,14 @@ export default function EppIndex({
         imagen_url: null,
     };
 
-    const { data, setData, post, put, processing, reset, clearErrors, errors } = useForm(emptyForm);
+    const { data, setData, post, processing, reset, clearErrors, errors } = useForm(emptyForm);
 
-    const openCreate = () => {
+    const openCreate = useCallback(() => {
         setEditingEPP(null); setFotoPreview(null);
         setData({ ...emptyForm, tallas_stock: [] }); clearErrors(); setShowFormModal(true);
-    };
+    }, []);
 
-    const openEdit = (epp) => {
+    const openEdit = useCallback((epp) => {
         setEditingEPP(epp); setFotoPreview(epp.foto_url ?? null);
         setData({
             nombre: epp.nombre ?? "", categoria_id: epp.categoria_id ? String(epp.categoria_id) : "",
@@ -117,12 +256,12 @@ export default function EppIndex({
             usa_tallas: !!epp.usa_tallas, almacen_id: "", stock_inicial: 0, tallas_stock: [], imagen_url: null,
         });
         clearErrors(); setShowFormModal(true);
-    };
+    }, []);
 
-    const closeFormModal = () => {
+    const closeFormModal = useCallback(() => {
         setShowFormModal(false); setEditingEPP(null);
         setFotoPreview(null); reset(); clearErrors();
-    };
+    }, []);
 
     const handleFotoChange = (e) => {
         const file = e.target.files[0];
@@ -151,13 +290,7 @@ export default function EppIndex({
         }
     };
 
-
-    const handleDelete = (epp) => {
-        if (!confirm(`¿Desactivar "${epp.nombre}"?`)) return;
-        router.delete(route("epp.destroy", epp.id), { preserveScroll: true });
-    };
-
-    const addTallaStock = () => setData("tallas_stock", [...data.tallas_stock, { talla_id: "", almacen_id: "", cantidad: 0 }]);
+    const addTallaStock    = () => setData("tallas_stock", [...data.tallas_stock, { talla_id: "", almacen_id: "", cantidad: 0 }]);
     const removeTallaStock = (i) => setData("tallas_stock", data.tallas_stock.filter((_, idx) => idx !== i));
     const updateTallaStock = (i, f, v) => {
         const arr = [...data.tallas_stock]; arr[i] = { ...arr[i], [f]: v }; setData("tallas_stock", arr);
@@ -192,20 +325,18 @@ export default function EppIndex({
             const matchSearch = !term || epp.nombre.toLowerCase().includes(term)
                 || epp.codigo.toLowerCase().includes(term)
                 || (epp.marca ?? "").toLowerCase().includes(term);
-            const matchCat = selectedCategoria === "todas" || String(epp.categoria_id) === String(selectedCategoria);
+            const matchCat    = selectedCategoria === "todas" || String(epp.categoria_id) === String(selectedCategoria);
             const matchEstado = selectedEstado === "todos" || epp.estado === selectedEstado;
             return matchSearch && matchCat && matchEstado;
         });
     }, [epps, searchTerm, selectedCategoria, selectedEstado, selectedAlmacen]);
 
     const stats = useMemo(() => ({
-        total: filtered.reduce((s, e) => s + (e.stock || 0), 0),
-        bajo_stock: filtered.filter(e => e.estado === "BAJO_STOCK").length,
-        agotados: filtered.filter(e => e.estado === "AGOTADO").length,
+        total:       filtered.reduce((s, e) => s + (e.stock || 0), 0),
+        bajo_stock:  filtered.filter(e => e.estado === "BAJO_STOCK").length,
+        agotados:    filtered.filter(e => e.estado === "AGOTADO").length,
         disponibles: filtered.filter(e => e.estado === "DISPONIBLE").length,
     }), [filtered]);
-
-    const almacenActivo = almacenes.find(a => String(a.id) === String(selectedAlmacen));
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -252,10 +383,10 @@ export default function EppIndex({
                     {/* KPIs */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {[
-                            { label: "Total en stock", value: stats.total, color: "text-slate-800", icon: Package },
-                            { label: "Bajo stock", value: stats.bajo_stock, color: "text-amber-600", icon: AlertTriangle },
-                            { label: "Agotados", value: stats.agotados, color: "text-red-600", icon: AlertTriangle },
-                            { label: "Disponibles", value: stats.disponibles, color: "text-emerald-600", icon: ShieldCheck },
+                            { label: "Total en stock", value: stats.total,       color: "text-slate-800",   icon: Package },
+                            { label: "Bajo stock",     value: stats.bajo_stock,  color: "text-amber-600",   icon: AlertTriangle },
+                            { label: "Agotados",       value: stats.agotados,    color: "text-red-600",     icon: AlertTriangle },
+                            { label: "Disponibles",    value: stats.disponibles, color: "text-emerald-600", icon: ShieldCheck },
                         ].map(({ label, value, color, icon: Icon }) => (
                             <Card key={label} className="border shadow-sm">
                                 <CardContent className="p-5 flex items-center justify-between">
@@ -263,7 +394,7 @@ export default function EppIndex({
                                         <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{label}</p>
                                         <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
                                     </div>
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-slate-100`}>
+                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-100">
                                         <Icon className={`w-5 h-5 ${color}`} />
                                     </div>
                                 </CardContent>
@@ -277,8 +408,12 @@ export default function EppIndex({
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                 <div className="lg:col-span-1 relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                                    <Input className="pl-9 h-10" placeholder="Nombre, código, marca..."
-                                        value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                    <Input
+                                        className="pl-9 h-10"
+                                        placeholder="Nombre, código, marca..."
+                                        value={searchInput}
+                                        onChange={e => setSearchInput(e.target.value)}
+                                    />
                                 </div>
 
                                 <select value={selectedAlmacen} onChange={e => setSelectedAlmacen(e.target.value)}
@@ -323,114 +458,16 @@ export default function EppIndex({
                             </Card>
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                                {filtered.map(epp => {
-                                    const cfg = ESTADO_CONFIG[epp.estado] ?? ESTADO_CONFIG.DISPONIBLE;
-                                    const pct = epp.stock_minimo > 0
-                                        ? Math.min((epp.stock / epp.stock_minimo) * 100, 100) : 100;
-
-                                    return (
-                                        <div key={epp.id}
-                                            className="bg-white rounded-2xl border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all duration-200 overflow-hidden flex flex-col group">
-
-                                            {/* ── Zona imagen ── */}
-                                            <div className="relative h-44 bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center overflow-hidden">
-                                                {epp.foto_url ? (
-                                                    <img src={epp.foto_url} alt={epp.nombre}
-                                                        className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                                ) : (
-                                                    <div className="flex flex-col items-center gap-2 text-slate-300">
-                                                        <HardHat className="w-16 h-16 group-hover:scale-110 transition-transform duration-300" />
-                                                    </div>
-                                                )}
-                                                {/* Badges superpuestos */}
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                <span className="absolute top-3 left-3 font-mono text-[10px] bg-white/90 text-slate-600 px-2 py-1 rounded-md font-semibold shadow-sm">
-                                                    {epp.codigo}
-                                                </span>
-                                                <span className={`absolute top-3 right-3 px-2.5 py-1 text-[11px] font-bold rounded-full shadow-sm ${cfg.badge}`}>
-                                                    {cfg.label}
-                                                </span>
-                                            </div>
-
-                                            {/* ── Body ── */}
-                                            <div className="p-4 flex flex-col flex-1">
-                                                <h4 className="font-bold text-slate-900 mb-1 line-clamp-1">{epp.nombre}</h4>
-                                                <p className="text-xs text-slate-400 mb-3">{epp.categoria ?? "Sin categoría"} · {epp.marca ?? "—"}</p>
-
-                                                {/* Stock */}
-                                                <div className="mt-auto">
-                                                    <div className="flex items-end justify-between mb-1">
-                                                        <span className="text-xs text-slate-500">Stock disponible</span>
-                                                        <span className="text-xs text-slate-400">Mín {epp.stock_minimo}</span>
-                                                    </div>
-                                                    <div className="flex items-baseline gap-1 mb-2">
-                                                        <span className={`text-3xl font-black tabular-nums ${cfg.num}`}>{epp.stock}</span>
-                                                        <span className="text-xs text-slate-400 mb-1">{epp.unidad_medida}</span>
-                                                    </div>
-                                                    <div className="w-full bg-slate-100 rounded-full h-1.5 mb-3">
-                                                        <div className={`h-1.5 rounded-full transition-all ${cfg.bar}`} style={{ width: `${pct}%` }} />
-                                                    </div>
-
-                                                    {/* Desglose por talla (solo si usa tallas) */}
-                                                    {epp.usa_tallas && (epp.skus ?? []).length > 0 && (() => {
-                                                        const tallasConStock = (epp.skus ?? [])
-                                                            .map(sku => ({
-                                                                nombre: sku.talla_nombre,
-                                                                qty: (sku.stocks_por_almacen ?? [])
-                                                                    .filter(s => s.estado_stock === "DISPONIBLE")
-                                                                    .reduce((s, b) => s + (b.cantidad_actual || 0), 0),
-                                                            }))
-                                                            .filter(t => t.qty > 0);
-
-                                                        const visibles = tallasConStock.slice(0, 4);
-                                                        const restantes = tallasConStock.length - 4;
-
-                                                        if (visibles.length === 0) return null;
-
-                                                        return (
-                                                            <div className="flex flex-wrap gap-1.5 mb-3">
-                                                                {visibles.map(t => (
-                                                                    <div key={t.nombre}
-                                                                        className="flex items-center gap-1 text-[11px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-                                                                        <span className="text-slate-500 font-medium">{t.nombre}</span>
-                                                                        <span className={`font-bold ${t.qty <= epp.stock_minimo ? "text-red-500" : "text-emerald-600"}`}>
-                                                                            {t.qty}
-                                                                        </span>
-                                                                    </div>
-                                                                ))}
-                                                                {restantes > 0 && (
-                                                                    <div className="flex items-center text-[11px] bg-blue-50 border border-blue-200 text-blue-600 rounded-lg px-2 py-1 font-semibold cursor-pointer"
-                                                                        onClick={() => setSelectedEPP(epp)}>
-                                                                        +{restantes} más
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })()}
-
-                                                    {/* Acciones */}
-                                                    <div className="flex gap-1.5 border-t pt-3">
-                                                        <Button size="sm" variant="outline"
-                                                            className="flex-1 h-8 text-xs gap-1 rounded-lg"
-                                                            onClick={() => setSelectedEPP(epp)}>
-                                                            <Eye className="w-3.5 h-3.5" /> Ver detalle
-                                                        </Button>
-                                                        <Button size="sm" variant="outline"
-                                                            className="h-8 w-8 p-0 rounded-lg text-blue-600 border-blue-100 hover:bg-blue-50"
-                                                            onClick={() => openEdit(epp)}>
-                                                            <Edit className="w-3.5 h-3.5" />
-                                                        </Button>
-                                                        <Button size="sm" variant="outline"
-                                                            className="h-8 w-8 p-0 rounded-lg text-red-500 border-red-100 hover:bg-red-50"
-                                                            onClick={() => handleDelete(epp)}>
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                {filtered.map(epp => (
+                                    // return directo de EppCard, sin JSX duplicado debajo
+                                    <EppCard
+                                        key={epp.id}
+                                        epp={epp}
+                                        onView={handleView}
+                                        onEdit={openEdit}
+                                        onDelete={handleDelete}
+                                    />
+                                ))}
                             </div>
                         )}
                     </div>
@@ -444,7 +481,6 @@ export default function EppIndex({
 
                         {/* Header modal */}
                         <div className="relative">
-                            {/* Imagen de fondo */}
                             <div className="h-40 bg-gradient-to-br from-slate-700 to-slate-900 overflow-hidden">
                                 {selectedEPP.foto_url ? (
                                     <img src={selectedEPP.foto_url} alt={selectedEPP.nombre}
@@ -454,11 +490,9 @@ export default function EppIndex({
                                         <HardHat className="w-20 h-20 text-white/20" />
                                     </div>
                                 )}
-                                {/* Overlay gradiente */}
                                 <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/30 to-transparent" />
                             </div>
 
-                            {/* Info superpuesta */}
                             <div className="absolute bottom-0 left-0 right-0 p-4">
                                 <div className="flex items-end justify-between gap-3">
                                     <div className="min-w-0">
@@ -472,7 +506,6 @@ export default function EppIndex({
                                 </div>
                             </div>
 
-                            {/* Cerrar */}
                             <button onClick={() => setSelectedEPP(null)}
                                 className="absolute top-3 right-3 w-8 h-8 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition-colors">
                                 <X className="w-4 h-4" />
@@ -482,12 +515,11 @@ export default function EppIndex({
                         {/* Body modal */}
                         <div className="overflow-y-auto flex-1 p-5 space-y-4">
 
-                            {/* Datos generales */}
                             <div className="grid grid-cols-2 gap-3">
                                 {[
-                                    { icon: Tag, label: "Categoría", value: selectedEPP.categoria ?? "—" },
-                                    { icon: Ruler, label: "Unidad", value: selectedEPP.unidad_medida },
-                                    { icon: Clock, label: "Vida útil", value: selectedEPP.vida_util_meses ? `${selectedEPP.vida_util_meses} meses` : "—" },
+                                    { icon: Tag,     label: "Categoría", value: selectedEPP.categoria ?? "—" },
+                                    { icon: Ruler,   label: "Unidad",    value: selectedEPP.unidad_medida },
+                                    { icon: Clock,   label: "Vida útil", value: selectedEPP.vida_util_meses ? `${selectedEPP.vida_util_meses} meses` : "—" },
                                     { icon: Package, label: "Stock mín.", value: selectedEPP.stock_minimo },
                                 ].map(({ icon: Icon, label, value }) => (
                                     <div key={label} className="rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center gap-3">
@@ -502,7 +534,6 @@ export default function EppIndex({
                                 ))}
                             </div>
 
-                            {/* Stock total */}
                             <div className={`rounded-xl p-4 ${ESTADO_CONFIG[selectedEPP.estado]?.bg ?? "bg-slate-50"} border border-slate-100`}>
                                 <p className="text-xs text-slate-500 font-medium mb-1">Stock total disponible</p>
                                 <div className="flex items-baseline gap-2">
@@ -513,18 +544,15 @@ export default function EppIndex({
                                 </div>
                             </div>
 
-                            {/* Desglose por almacén / talla */}
-                            {/* Desglose solo por talla */}
                             {selectedEPP.usa_tallas && (selectedEPP.skus ?? []).length > 0 && (
                                 <div>
                                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                                         Stock por talla
                                     </p>
-
                                     <div className="space-y-2">
                                         {(selectedEPP.skus ?? []).map((sku) => {
                                             const stockTotalTalla = (sku.stocks_por_almacen ?? [])
-                                                .filter((s) => s.estado_stock === "DISPONIBLE")
+                                                .filter(s => s.estado_stock === "DISPONIBLE")
                                                 .reduce((total, s) => total + (Number(s.cantidad_actual) || 0), 0);
 
                                             const stockMinimoTalla = (sku.stocks_por_almacen ?? [])
@@ -534,25 +562,17 @@ export default function EppIndex({
                                                 }, null);
 
                                             return (
-                                                <div
-                                                    key={sku.id}
-                                                    className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3"
-                                                >
+                                                <div key={sku.id}
+                                                    className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3">
                                                     <div>
                                                         <p className="text-xs text-slate-400"></p>
                                                         <p className="text-sm font-semibold text-slate-700">
                                                             {sku.talla_nombre ?? "Sin talla"}
                                                         </p>
                                                     </div>
-
                                                     <div className="text-right">
                                                         <p className="text-xs text-slate-400">Stock</p>
-                                                        <span
-                                                            className={`text-2xl font-black tabular-nums ${stockTotalTalla <= (stockMinimoTalla ?? 0)
-                                                                ? "text-red-500"
-                                                                : "text-emerald-600"
-                                                                }`}
-                                                        >
+                                                        <span className={`text-2xl font-black tabular-nums ${stockTotalTalla <= (stockMinimoTalla ?? 0) ? "text-red-500" : "text-emerald-600"}`}>
                                                             {stockTotalTalla}
                                                         </span>
                                                     </div>
@@ -604,8 +624,7 @@ export default function EppIndex({
                                 <div className="flex items-center gap-4">
                                     <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-200 overflow-hidden flex items-center justify-center bg-slate-50 shrink-0">
                                         {fotoPreview ? (
-                                            <img src={fotoPreview} alt="Preview"
-                                                className="w-full h-full object-cover" />
+                                            <img src={fotoPreview} alt="Preview" className="w-full h-full object-cover" />
                                         ) : (
                                             <Camera className="w-8 h-8 text-slate-300" />
                                         )}

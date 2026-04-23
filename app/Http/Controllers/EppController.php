@@ -21,16 +21,28 @@ class EppController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(): Response
+    public function index(Request $request): Response
     {
-        $epps = EppItem::with([
+        $storageBase = Storage::url('');
+        /* colocando filtros en el backend */
+        $query = EppItem::with([
             'categoria',
-            'skus' => fn ($q) => $q->with('talla', 'stocks.almacen.proyecto'),
-        ])
-            ->where('activo', true)
-            ->orderBy('nombre')
-            ->get()
-            ->map(fn (EppItem $item) => $this->mapEpp($item))
+            /* 'skus' => fn ($q) => $q->with('talla', 'stocks.almacen'), */
+            'skus' => fn ($q) => $q->with(['talla:id,codigo,nombre',
+            'stocks' => fn ($q) => $q->with([
+                'almacen:id,nombre,proyecto_id',
+                'almacen.proyecto:id,nombre',
+        ])->select('id', 'almacen_id', 'epp_sku_id', 'estado_stock', 'cantidad_actual', 'stock_minimo')]),
+        ])->where('activo', true);
+
+        if ($request->filled('categoria_id')) {
+            $query->where('categoria_id', $request->categoria_id);
+        }
+        if ($request->filled('search')) {
+            $query->where('nombre', 'like', '%' . $request->search . '%');
+        }
+
+        $epps = $query->get()->map(fn ($item) => $this->mapEpp($item, $storageBase))
             ->values();
 
         $categorias = EppCategoria::where('activo', true)
@@ -226,7 +238,7 @@ class EppController extends Controller
         }
     }
 
-    private function mapEpp(EppItem $item): array
+    private function mapEpp(EppItem $item, string $storageBase = ''): array
     {
         $skusMapeados = $item->skus ? $item->skus->map(function (EppSku $sku) {
             $stockDisponible = $sku->stocks->where('estado_stock', 'DISPONIBLE')->sum('cantidad_actual');
@@ -250,6 +262,10 @@ class EppController extends Controller
 
         $stockTotal = $skusMapeados->sum('stock_disponible');
 
+        $stockMinimo = (int) $item->skus
+            ->flatMap(fn ($sku) => $sku->stocks)
+            ->max('stock_minimo') ?? 0;
+
         return [
             'id'              => $item->id,
             'codigo'          => 'EPP-' . str_pad((string) $item->id, 3, '0', STR_PAD_LEFT),
@@ -260,22 +276,16 @@ class EppController extends Controller
             'unidad_medida'   => $item->unidad_medida,
             'usa_tallas'      => (bool) $item->usa_tallas,
             'foto_url'        => $item->imagen_url
-                    ? Storage::url($item->imagen_url)
+                    ? $storageBase . $item->imagen_url
                     : null,
             'vida_util_meses' => $item->vida_util_meses,
             'stock'           => $stockTotal,
-            'stock_minimo'    => $this->getStockMinimo($item),
-            'estado'          => $this->resolverEstado($stockTotal, $this->getStockMinimo($item)),
+            'stock_minimo'    => $stockMinimo,
+            'estado'          => $this->resolverEstado($stockTotal, $stockMinimo),
             'activo'          => (bool) $item->activo,
             'skus'            => $skusMapeados,
         ];
     }
-    private function getStockMinimo(EppItem $item): int
-    {
-        return (int) StockAlmacen::whereHas('sku', fn ($q) => $q->where('epp_item_id', $item->id))
-            ->max('stock_minimo');
-    }
-
     private function resolverEstado(int $stock, int $minimo): string
     {
         if ($stock <= 0)       return 'AGOTADO';
