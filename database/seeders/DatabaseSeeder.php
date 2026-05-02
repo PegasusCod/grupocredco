@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             TallaSeeder::class,
             MovimientoTipoSeeder::class,
             RolesAndPermissionsSeeder::class,
+            EppCategoriasSeeder::class,
         ]);
     }
 }

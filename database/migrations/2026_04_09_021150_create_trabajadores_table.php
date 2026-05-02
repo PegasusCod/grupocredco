@@ -21,7 +21,7 @@ return new class extends Migration
             $table->string('apellidos', 100);
             $table->string('correo', 100)->nullable();
             $table->string('telefono', 30)->nullable();
-            $table->date('fecha_cumpleaños')->nullable();
+            $table->date('happy_birthday')->nullable();
             $table->date('fecha_ingreso')->nullable();
             $table->date('fecha_cese')->nullable();
             $table->enum('estado', ['ACTIVO', 'CESADO', 'SUSPENDIDO'])->default('ACTIVO');

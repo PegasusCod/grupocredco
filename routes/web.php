@@ -39,6 +39,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     // Trabajadores
+    Route::post('trabajadores/{trabajador}', [TrabajadorController::class, 'update'])
+        ->name('trabajadores.update.post');
+
     Route::resource('trabajadores', TrabajadorController::class);
 
     // Cargos
@@ -85,8 +88,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Almacenes (CRUD completo)
     Route::resource('almacenes', AlmacenController::class)->except(['create', 'edit', 'show']);
-
-
 });
 
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';

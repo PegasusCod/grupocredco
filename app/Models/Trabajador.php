@@ -19,7 +19,7 @@ class Trabajador extends Model
         'apellidos',
         'correo',
         'telefono',
-        'fecha_cump',
+        'happy_birthday',
         'fecha_ingreso',
         'fecha_cese',
         'estado',
@@ -27,10 +27,9 @@ class Trabajador extends Model
     ];
 
     protected $casts = [
-        'fecha_cump' => 'date',
+        'happy_birthday' => 'date',
         'fecha_ingreso' => 'date',
         'fecha_cese' => 'date',
-        /* 'estado' => 'boolean', */
     ];
 
     public function proyecto(): BelongsTo
