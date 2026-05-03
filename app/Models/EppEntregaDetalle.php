@@ -28,7 +28,7 @@ class EppEntregaDetalle extends Model
 
     public function entrega(): BelongsTo
     {
-        return $this->belongsTo(EppEntrega::class);
+        return $this->belongsTo(EppEntrega::class, 'entrega_id');
     }
 
     public function sku(): BelongsTo

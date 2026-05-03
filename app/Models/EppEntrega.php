@@ -40,6 +40,10 @@ class EppEntrega extends Model
 
     public function detalles(): HasMany
     {
-        return $this->hasMany(EppEntregaDetalle::class, 'epp_entrega_id');
+        return $this->hasMany(EppEntregaDetalle::class, 'entrega_id');
+    }
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }
