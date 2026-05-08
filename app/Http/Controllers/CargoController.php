@@ -34,9 +34,7 @@ class CargoController extends Controller
         ]);
         $cargo = CargoLaboral::create($validated);
 
-        return redirect()
-        ->route('trabajadores.index')
-        ->with('success', 'Cargo laboral creado exitosamente.');
+        return back()->with('success', 'Cargo creado correctamente.');
     }
 
     /**
@@ -61,12 +59,17 @@ class CargoController extends Controller
     public function update(Request $request, CargoLaboral $cargo): RedirectResponse
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255|unique:cargos_laborales,nombre,' . $cargo->id,
+            'nombre' => [
+                'required',
+                'string',
+                'max:100',
+                'unique:cargos_laborales,nombre,' . $cargo->id,
+            ],
         ]);
-        
+ 
         $cargo->update($validated);
-
-        return back()->with('success', 'Cargo laboral actualizado exitosamente.');
+ 
+        return back()->with('success', 'Cargo actualizado correctamente.');
     }
 
     /**
@@ -75,11 +78,14 @@ class CargoController extends Controller
     public function destroy(CargoLaboral $cargo): RedirectResponse
     {
         if ($cargo->trabajadores()->exists()) {
-            return back()->with('error', 'No se puede eliminar el cargo laboral porque está asociado a trabajadores.');
+            return redirect()->back()->with(
+                'error',
+                'No se puede eliminar: el cargo tiene trabajadores asignados.'
+            );
         }
-
+ 
         $cargo->delete();
-
-        return back()->with('success', 'Cargo laboral eliminado exitosamente.');
+ 
+        return back()->with('success', 'Cargo eliminado correctamente.');
     }
 }

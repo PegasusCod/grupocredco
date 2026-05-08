@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Almacen;
+use App\Models\EppIngreso;
+use App\Models\EppIngresoDetalle;
 use App\Models\EppItem;
 use App\Models\EppSku;
 use App\Models\MovimientoEpp;
@@ -16,56 +18,56 @@ use Inertia\Response;
 
 class InventarioController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request): Response
     {
         $search = trim((string) $request->input('search', ''));
 
+        // ── Items para el formulario ─────────────────────────────────────────
+        // NUEVO: incluye stocks por almacén para mostrar disponibilidad en el modal
         $items = EppItem::with([
-            'categoria:id,nombre',
-            'skus' => fn ($q) => $q->with('talla:id,codigo,nombre', 'stocks.almacen'),
+            'skus' => fn ($q) => $q
+                ->with([
+                    'talla:id,codigo,nombre',
+                    'stocks' => fn ($sq) => $sq
+                        ->where('estado_stock', 'DISPONIBLE')
+                        ->select(['id', 'almacen_id', 'epp_sku_id', 'cantidad_actual']),
+                ])
+                ->select(['id', 'epp_item_id', 'talla_id']),
         ])
             ->where('activo', true)
             ->orderBy('nombre')
-            ->get()
+            ->get(['id', 'nombre', 'usa_tallas'])
             ->map(fn ($item) => [
-                'id'          => $item->id,
-                'nombre'      => $item->nombre,
-                'codigo'      => 'EPP-' . str_pad((string) $item->id, 3, '0', STR_PAD_LEFT),
-                'categoria'   => $item->categoria?->nombre,
-                'usa_tallas'  => (bool) $item->usa_tallas,
-                'stock_total' => (int) $item->skus->flatMap->stocks->where('estado_stock', 'DISPONIBLE')->sum('cantidad_actual'),
-                'skus'        => $item->skus->map(fn ($sku) => [
-                    'id'    => $sku->id,
-                    'talla' => $sku->talla?->codigo ?? 'UNICA',
-                    'stocks' => $sku->stocks->map(fn ($s) => [
+                'id'         => $item->id,
+                'nombre'     => $item->nombre,
+                'usa_tallas' => (bool) $item->usa_tallas,
+                'skus'       => $item->skus->map(fn ($sku) => [
+                    'id'           => $sku->id,
+                    'talla_codigo' => $sku->talla?->codigo ?? 'UNICA',
+                    'talla_nombre' => $sku->talla?->nombre ?? 'Talla Única',
+                    // NUEVO: stock por almacén para mostrar disponibilidad en modal
+                    'stocks'       => $sku->stocks->map(fn ($s) => [
                         'almacen_id'      => $s->almacen_id,
-                        'almacen_nombre'  => $s->almacen?->nombre,
-                        'estado_stock'    => $s->estado_stock,
-                        'cantidad_actual' => $s->cantidad_actual,
+                        'cantidad_actual' => (int) $s->cantidad_actual,
                     ])->values(),
                 ])->values(),
             ])
             ->values();
 
-        $query = MovimientoEpp::query()
+        // ── Ingresos paginados ────────────────────────────────────────────────
+        $query = EppIngreso::query()
             ->with([
-                'sku.item:id,nombre',
-                'sku.talla:id,codigo,nombre',
-                'almacen:id,nombre',
-                'tipoMovimiento:id,nombre,codigo',
+                'detalles.sku.item:id,nombre',
+                'detalles.sku.talla:id,codigo',
+                // NUEVO: carga el movimiento para obtener saldo_anterior y saldo_nuevo
+                'detalles.movimientoEntrada:id,saldo_anterior,saldo_nuevo',
+                'almacenDestino:id,nombre',
                 'user:id,name',
             ])
-            ->where('naturaleza', 'ENTRADA')
-            ->whereHas('tipoMovimiento', fn ($q) =>
-                $q->where('codigo', 'INGRESO_GUIA_REMISION')
-            )
             ->when($search !== '', fn ($q) =>
                 $q->where(fn ($inner) =>
-                    $inner->where('referencia', 'like', "%{$search}%")
-                          ->orWhereHas('sku.item', fn ($i) =>
+                    $inner->where('documento_guia_remision', 'like', "%{$search}%")
+                          ->orWhereHas('detalles.sku.item', fn ($i) =>
                               $i->where('nombre', 'like', "%{$search}%")
                           )
                           ->orWhereHas('user', fn ($u) =>
@@ -73,34 +75,37 @@ class InventarioController extends Controller
                           )
                 )
             )
-            ->orderByDesc('fecha_movimiento');
+            ->orderByDesc('fecha_ingreso');
 
         $paginated = $query->paginate(10)->withQueryString();
 
+        $statsBase = EppIngreso::selectRaw('COUNT(*) as total, MAX(fecha_ingreso) as ultimo')->first();
+        $unidades  = EppIngresoDetalle::sum('cantidad');
+
         $ingresos = [
-            'data' => collect($paginated->items())->map(fn ($mov) => [
-                'id'             => $mov->id,
-                'fecha'          => $mov->fecha_movimiento->format('Y-m-d'),
-                'lote'           => $mov->referencia,
-                'cantidad'       => $mov->cantidad,
-                'saldo_anterior' => $mov->saldo_anterior,
-                'saldo_nuevo'    => $mov->saldo_nuevo,
-                'talla'          => $mov->sku?->talla?->codigo ?? 'UNICA',
-                'almacen'        => $mov->almacen?->nombre,
-                'observaciones'  => $mov->observaciones,
-                'responsable'    => $mov->user?->name,
-                'epp' => [
-                    'id'     => $mov->sku?->item?->id,
-                    'nombre' => $mov->sku?->item?->nombre,
-                    'codigo' => $mov->sku?->item
-                        ? 'EPP-' . str_pad((string) $mov->sku->item->id, 3, '0', STR_PAD_LEFT)
-                        : null,
-                ],
+            'data' => collect($paginated->items())->map(fn ($ing) => [
+                'id'             => $ing->id,
+                'fecha'          => $ing->fecha_ingreso instanceof \Carbon\Carbon
+                    ? $ing->fecha_ingreso->format('Y-m-d')
+                    : (string) $ing->fecha_ingreso,
+                'guia'           => $ing->documento_guia_remision,
+                'observaciones'  => $ing->observaciones,
+                'almacen'        => $ing->almacenDestino?->nombre,
+                'responsable'    => $ing->user?->name,
+                'estado'         => $ing->estado,
+                'total_unidades' => $ing->detalles->sum('cantidad'),
+                'detalles'       => $ing->detalles->map(fn ($det) => [
+                    'epp_nombre'     => $det->sku?->item?->nombre ?? '—',
+                    'talla'          => $det->sku?->talla?->codigo ?? 'UNICA',
+                    'cantidad'       => (int) $det->cantidad,
+                    // NUEVO: saldo antes y después del ingreso
+                    'saldo_anterior' => $det->movimientoEntrada?->saldo_anterior,
+                    'saldo_nuevo'    => $det->movimientoEntrada?->saldo_nuevo,
+                ])->values(),
             ])->values(),
             'meta' => [
                 'current_page'  => $paginated->currentPage(),
                 'last_page'     => $paginated->lastPage(),
-                'per_page'      => $paginated->perPage(),
                 'total'         => $paginated->total(),
                 'from'          => $paginated->firstItem(),
                 'to'            => $paginated->lastItem(),
@@ -114,22 +119,13 @@ class InventarioController extends Controller
             'ingresos' => $ingresos,
             'filters'  => ['search' => $search],
             'stats'    => [
-                'total_ingresos'      => MovimientoEpp::where('naturaleza', 'ENTRADA')
-                    ->whereHas('tipoMovimiento', fn ($q) => $q->where('codigo', 'INGRESO_GUIA_REMISION'))
-                    ->count(),
-                'unidades_ingresadas' => (int) MovimientoEpp::where('naturaleza', 'ENTRADA')
-                    ->whereHas('tipoMovimiento', fn ($q) => $q->where('codigo', 'INGRESO_GUIA_REMISION'))
-                    ->sum('cantidad'),
-                'ultimo_ingreso'      => MovimientoEpp::where('naturaleza', 'ENTRADA')
-                    ->whereHas('tipoMovimiento', fn ($q) => $q->where('codigo', 'INGRESO_GUIA_REMISION'))
-                    ->latest('fecha_movimiento')
-                    ->value('fecha_movimiento')
-                    ?->format('Y-m-d'),
+                'total_ingresos'      => (int) ($statsBase->total ?? 0),
+                'unidades_ingresadas' => (int) $unidades,
+                'ultimo_ingreso'      => $statsBase->ultimo,
             ],
             'almacenes' => Almacen::where('activo', true)
                 ->where('tipo_almacen', 'OPERATIVO')
-                ->with('proyecto:id,nombre')
-                ->get(['id', 'nombre', 'proyecto_id']),
+                ->get(['id', 'nombre']),
             'authUser' => [
                 'id'   => $request->user()->id,
                 'name' => $request->user()->name,
@@ -137,53 +133,47 @@ class InventarioController extends Controller
         ]);
     }
 
-
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'fecha_ingreso'             => 'required|date',
-            'numero_guia'               => 'required|string|max:100',
-            'proveedor'                 => 'required|string|max:255',
-            'observaciones'             => 'nullable|string',
-            'almacen_id'                => 'required|exists:almacenes,id',
-            'detalles'                  => 'required|array|min:1',
-            'detalles.*.epp_sku_id'     => 'required|exists:epp_skus,id',
-            'detalles.*.cantidad'       => 'required|integer|min:1',
+            'fecha_ingreso'         => 'required|date',
+            'numero_guia'           => 'required|string|max:100',
+            'observaciones'         => 'nullable|string|max:500',
+            'almacen_id'            => 'required|exists:almacenes,id',
+            'detalles'              => 'required|array|min:1',
+            'detalles.*.epp_sku_id' => 'required|exists:epp_skus,id',
+            'detalles.*.cantidad'   => 'required|integer|min:1',
         ]);
 
         DB::transaction(function () use ($request, $data) {
-            $tipoIngreso = MovimientoTipo::where('codigo', 'INGRESO_GUIA_REMISION')->firstOrFail();
+            $tipoIngreso = MovimientoTipo::firstOrCreate(
+                ['codigo' => 'INGRESO_COMPRA'],
+                ['nombre' => 'Ingreso por compra', 'naturaleza_default' => 'ENTRADA', 'afecta_stock' => true, 'activo' => true]
+            );
+
+            $ingreso = EppIngreso::create([
+                'fecha_ingreso'           => $data['fecha_ingreso'],
+                'almacen_destino_id'      => $data['almacen_id'],
+                'documento_guia_remision' => $data['numero_guia'],
+                'observaciones'           => $data['observaciones'] ?? null,
+                'estado'                  => 'CONFIRMADO',
+                'user_id'                 => $request->user()->id,
+            ]);
 
             foreach ($data['detalles'] as $det) {
-                $sku      = EppSku::with('item')->lockForUpdate()->findOrFail($det['epp_sku_id']);
+                $sku      = EppSku::findOrFail($det['epp_sku_id']);
                 $cantidad = (int) $det['cantidad'];
 
                 $stock = StockAlmacen::firstOrCreate(
-                    [
-                        'almacen_id'   => $data['almacen_id'],
-                        'epp_sku_id'   => $sku->id,
-                        'estado_stock' => 'DISPONIBLE',
-                    ],
+                    ['almacen_id' => $data['almacen_id'], 'epp_sku_id' => $sku->id, 'estado_stock' => 'DISPONIBLE'],
                     ['cantidad_actual' => 0, 'stock_minimo' => 0]
                 );
 
                 $saldoAnterior = $stock->cantidad_actual;
                 $saldoNuevo    = $saldoAnterior + $cantidad;
-
                 $stock->update(['cantidad_actual' => $saldoNuevo]);
 
-                MovimientoEpp::create([
+                $movimiento = MovimientoEpp::create([
                     'fecha_movimiento'   => $data['fecha_ingreso'],
                     'almacen_id'         => $data['almacen_id'],
                     'epp_sku_id'         => $sku->id,
@@ -195,8 +185,15 @@ class InventarioController extends Controller
                     'saldo_nuevo'        => $saldoNuevo,
                     'documento_tipo'     => 'GUIA_REMISION',
                     'referencia'         => $data['numero_guia'],
-                    'observaciones'      => trim("Proveedor: {$data['proveedor']}. " . ($data['observaciones'] ?? '')),
+                    'observaciones'      => $data['observaciones'] ?? null,
                     'user_id'            => $request->user()->id,
+                ]);
+
+                EppIngresoDetalle::create([
+                    'ingreso_id'            => $ingreso->id,
+                    'epp_sku_id'            => $sku->id,
+                    'cantidad'              => $cantidad,
+                    'movimiento_entrada_id' => $movimiento->id,
                 ]);
             }
         });
@@ -204,35 +201,9 @@ class InventarioController extends Controller
         return back()->with('success', 'Ingreso registrado correctamente.');
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
-    {
-        //
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
-    }
+    public function create() {}
+    public function show(string $id) {}
+    public function edit(string $id) {}
+    public function update(Request $request, string $id) {}
+    public function destroy(string $id) {}
 }

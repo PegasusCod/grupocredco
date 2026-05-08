@@ -58,9 +58,21 @@ class ProyectoController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
-    {
-        //
+    public function update(Request $request, Proyecto $proyecto): RedirectResponse
+     {
+        $validated = $request->validate([
+            'nombre' => [
+                'required',
+                'string',
+                'max:150',
+                'unique:proyectos,nombre,' . $proyecto->id,
+            ],
+            'activo' => ['boolean'],
+        ]);
+ 
+        $proyecto->update($validated);
+ 
+        return back()->with('success', 'Proyecto actualizado correctamente.');
     }
 
     /**
@@ -69,15 +81,21 @@ class ProyectoController extends Controller
     public function destroy(Proyecto $proyecto): RedirectResponse
      {
         if ($proyecto->trabajadores()->exists()) {
-            return back()->with('error', 'No puedes eliminar un proyecto que tiene trabajadores asignados.');
+            return back()->with(
+                'error',
+                'No se puede eliminar: el proyecto tiene trabajadores asignados.'
+            );
         }
-
+ 
         if ($proyecto->almacenes()->exists()) {
-            return back()->with('error', 'No puedes eliminar un proyecto que tiene almacenes asignados.');
+            return redirect()->back()->with(
+                'error',
+                'No se puede eliminar: el proyecto tiene almacenes asignados.'
+            );
         }
-
+ 
         $proyecto->delete();
-
-        return back()->with('success', 'Proyecto eliminado.');
+ 
+        return back()->with('success', 'Proyecto eliminado correctamente.');
     }
 }

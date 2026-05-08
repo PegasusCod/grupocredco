@@ -79,15 +79,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('segregacion/dar-baja', [SegregacionController::class, 'darBaja'])->name('segregacion.darBaja');
 
     /* Tablas maestras como cargo, proyecto,almacenes */
-    Route::get('configuracion', [ConfiguracionController::class, 'index'])->name('configuracion.index');
+    Route::get('/configuracion', [ConfiguracionController::class, 'index'])->name('configuracion.index');
 
-    /* Proyectos (CRUDCOMPLETO) */
-    Route::resource('proyectos', ProyectoController::class)->except(['index', 'create', 'edit', 'show']);
 
-    /* CRUD de almacenes */
+    // ── Proyectos ─────────────────────────────────────────────────────────────────
+    Route::post('/proyectos',              [ProyectoController::class, 'store'])->name('proyectos.store');
+    Route::put('/proyectos/{proyecto}',   [ProyectoController::class, 'update'])->name('proyectos.update');
+    Route::delete('/proyectos/{proyecto}',   [ProyectoController::class, 'destroy'])->name('proyectos.destroy');
 
-    // Almacenes (CRUD completo)
-    Route::resource('almacenes', AlmacenController::class)->except(['create', 'edit', 'show']);
+    // ── Almacenes ─────────────────────────────────────────────────────────────────
+    Route::post('/almacenes',             [AlmacenController::class, 'store'])->name('almacenes.store');
+    Route::put('/almacenes/{almacen}',   [AlmacenController::class, 'update'])->name('almacenes.update');
+    Route::delete('/almacenes/{almacen}',   [AlmacenController::class, 'destroy'])->name('almacenes.destroy');
 });
 
 require __DIR__ . '/auth.php';

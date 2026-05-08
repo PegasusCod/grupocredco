@@ -30,16 +30,26 @@ class AlmacenController extends Controller
     public function store(Request $request): RedirectResponse
      {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255|unique:almacenes,nombre',
-            'proyecto_id' => 'required|exists:proyectos,id',
-            'tipo_almacen' => 'required|in:OPERATIVO,SEGREGACION',
-            'compartido' => 'required|boolean',
-            'activo' => 'required|boolean',
+            'nombre'       => ['required', 'string', 'max:150'],
+            'tipo_almacen' => ['required', 'in:OPERATIVO,SEGREGACION'],
+            // ✅ proyecto_id solo es requerido si es OPERATIVO
+            'proyecto_id'  => [
+                'nullable',
+                'required_if:tipo_almacen,OPERATIVO',
+                'exists:proyectos,id',
+            ],
+            'compartido'   => ['boolean'],
+            'activo'       => ['boolean'],
         ]);
-
+ 
+        // ✅ Si es SEGREGACION, forzamos proyecto_id a null
+        if ($validated['tipo_almacen'] === 'SEGREGACION') {
+            $validated['proyecto_id'] = null;
+        }
+ 
         Almacen::create($validated);
-
-        return back()->with('success', 'Almacén creado exitosamente.');
+ 
+        return back()->with('success', 'Almacén creado correctamente.');
     }
 
     /**
@@ -64,16 +74,24 @@ class AlmacenController extends Controller
     public function update(Request $request, Almacen $almacen): RedirectResponse
     {
         $validated = $request->validate([
-            'nombre' => 'required|string|max:255|unique:almacenes,nombre,' . $almacen->id,
-            'proyecto_id' => 'required|exists:proyectos,id',
-            'tipo_almacen' => 'required|in:general,segregacion',
-            'compartido' => 'required|boolean',
-            'activo' => 'required|boolean',
+            'nombre'       => ['required', 'string', 'max:150'],
+            'tipo_almacen' => ['required', 'in:OPERATIVO,SEGREGACION'],
+            'proyecto_id'  => [
+                'nullable',
+                'required_if:tipo_almacen,OPERATIVO',
+                'exists:proyectos,id',
+            ],
+            'compartido'   => ['boolean'],
+            'activo'       => ['boolean'],
         ]);
-
+ 
+        if ($validated['tipo_almacen'] === 'SEGREGACION') {
+            $validated['proyecto_id'] = null;
+        }
+ 
         $almacen->update($validated);
-
-        return back()->with('success', 'Almacén actualizado exitosamente.');
+ 
+        return back()->with('success', 'Almacén actualizado correctamente.');
     }
 
     /**
@@ -81,12 +99,16 @@ class AlmacenController extends Controller
      */
     public function destroy(almacen $almacen): RedirectResponse
     {
-        if ($almacen->stocks()->where('cantidad_actual', '>', 0)->exists()) {
-            return back()->with('error', 'No puedes eliminar un almacén que tiene stock.');
+        // Verificar si tiene stock antes de eliminar
+        if ($almacen->stocks()->exists()) {
+            return redirect()->back()->with(
+                'error',
+                'No se puede eliminar: el almacén tiene stock registrado.'
+            );
         }
-
+ 
         $almacen->delete();
-
-        return back()->with('success', 'Almacén eliminado.');
+ 
+        return back()->with('success', 'Almacén eliminado correctamente.');
     }
 }
