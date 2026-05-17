@@ -27,16 +27,20 @@ class EppSku extends Model
 
     public function talla(): BelongsTo
     {
-        return $this->belongsTo(Talla::class);
+        return $this->belongsTo(Talla::class , 'talla_id');
     }
 
     public function stocks(): HasMany
     {
-        return $this->hasMany(StockAlmacen::class);
+        return $this->hasMany(StockAlmacen::class , 'epp_sku_id');
     }
 
     public function movimientos(): HasMany
     {
-        return $this->hasMany(MovimientoEpp::class);
+        return $this->hasMany(MovimientoEpp::class , 'epp_sku_id');
+    }
+    public function custodias(): HasMany
+    {
+        return $this->hasMany(TrabajadorEppCustodia::class, 'epp_sku_id');
     }
 }

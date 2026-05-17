@@ -21,6 +21,6 @@ class Talla extends Model
 
     public function skus(): HasMany
     {
-        return $this->hasMany(EppSku::class);
+        return $this->hasMany(EppSku::class , 'talla_id');
     }
 }

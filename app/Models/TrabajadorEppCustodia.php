@@ -25,7 +25,7 @@ class TrabajadorEppCustodia extends Model
     protected $cast = [
         'fecha_entrega' => 'datetime',
         'fecha_cierre' => 'dateetime',
-        'cantidad_entrergada' => 'integer',
+        'cantidad_entregada' => 'integer',
         'cantidad_devuelta' => 'integer',
         'cantidad_perdida' => 'integer',
     ];
@@ -37,7 +37,7 @@ class TrabajadorEppCustodia extends Model
 
     public function entregaDetalle(): BelongsTo
     {
-        return $this->belongsTo(EppEntregaDetalle::class);
+        return $this->belongsTo(EppEntregaDetalle::class , 'entrega_detalle_id');
     }
 
     public function sku(): BelongsTo
@@ -45,8 +45,8 @@ class TrabajadorEppCustodia extends Model
         return $this->belongsTo(EppSku::class, 'epp_sku_id');
     }
 
-    public function getCantidadPendienteAttribute()
+    public function getCantidadPendienteAttribute():int
     {
-        return $this->cantidad_entregada - ($this->cantidad_devuelta + $this->cantidad_perdida);
+        return $this->cantidad_entregada - $this->cantidad_devuelta - $this->cantidad_perdida;
     }
 }

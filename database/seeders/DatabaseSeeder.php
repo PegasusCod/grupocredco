@@ -13,6 +13,11 @@ class DatabaseSeeder extends Seeder
             MovimientoTipoSeeder::class,
             RolesAndPermissionsSeeder::class,
             EppCategoriasSeeder::class,
+            CargosLaboralesSeeder::class,
+            ProyectoSeeder::class,
+            AlmacenesSeeder::class,
+            ObrasCivilesTrabajadoresSeeder::class,
+            EppObrasCivilesSeeder::class,
         ]);
     }
 }

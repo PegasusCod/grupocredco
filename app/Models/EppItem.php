@@ -24,6 +24,7 @@ class EppItem extends Model
     protected $casts = [
         'usa_tallas' => 'boolean',
         'activo' => 'boolean',
+        'vida_util_meses' => 'integer',
     ];
 
     public function categoria(): BelongsTo
@@ -32,6 +33,6 @@ class EppItem extends Model
     }
     public function skus(): HasMany
     {
-        return $this->hasMany(EppSku::class);
+        return $this->hasMany(EppSku::class , 'epp_item_id');
     }
 }

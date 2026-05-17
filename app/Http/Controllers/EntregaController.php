@@ -6,6 +6,8 @@ use App\Models\Almacen;
 use App\Models\EppEntrega;
 use App\Models\EppEntregaDetalle;
 use App\Models\EppItem;
+use App\Models\EppSku;
+use App\Models\IncidenciaEpp;
 use App\Models\MovimientoEpp;
 use App\Models\MovimientoTipo;
 use App\Models\StockAlmacen;
@@ -22,25 +24,21 @@ use Inertia\Response;
 
 class EntregaController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): Response
     {
         $search = trim($request->input('search', ''));
         $year   = (int) $request->input('year', now()->year);
 
-        $trabajador = null;
-        $candidatos = [];   // FIX: lista cuando búsqueda por nombre devuelve varios resultados
-        $historial  = [];
+        $trabajador          = null;
+        $candidatos          = [];
+        $historial           = [];
+        $eppItemsDisponibles = [];
 
         if ($search) {
-            // ── FIX 1: Búsqueda por fotocheck (exacto) O por nombre/apellido (parcial) ──
-            // Antes: solo búsqueda exacta por fotocheck → no encontraba por nombre
-
-            // Paso 1: coincidencia exacta de fotocheck (prioridad)
             $trabajador = Trabajador::with(['cargoLaboral:id,nombre', 'proyecto:id,nombre'])
                 ->where('codigo_fotocheck', $search)
                 ->first();
 
-            // Paso 2: si no hay coincidencia exacta, buscar por nombre/apellido
             if (!$trabajador) {
                 $matches = Trabajador::with(['cargoLaboral:id,nombre', 'proyecto:id,nombre'])
                     ->where(fn ($q) =>
@@ -53,10 +51,8 @@ class EntregaController extends Controller
                     ->get();
 
                 if ($matches->count() === 1) {
-                    // Resultado único: mostrar directamente
                     $trabajador = $matches->first();
                 } elseif ($matches->count() > 1) {
-                    // Múltiples resultados: devolver lista para que el usuario elija
                     $candidatos = $matches->map(fn ($t) => [
                         'id'               => $t->id,
                         'nombres'          => $t->nombres,
@@ -69,7 +65,6 @@ class EntregaController extends Controller
             }
 
             if ($trabajador) {
-                // Cargar historial
                 $trabajador->load([
                     'entregas' => fn ($q) =>
                         $q->with('user:id,name')
@@ -107,15 +102,18 @@ class EntregaController extends Controller
                     ])
                     ->values();
 
-                // ── FIX 2: Detectar almacén desde el proyecto del trabajador ──
-                // La relación es: trabajadores.proyecto_id → almacenes.proyecto_id
-                // Antes: el almacén no se enviaba → el frontend no podía auto-rellenar
-                $almacenProyecto = Almacen::where('proyecto_id', $trabajador->proyecto_id)
-                    ->where('tipo_almacen', 'OPERATIVO')
-                    ->where('activo', true)
-                    ->first(['id', 'nombre']);
+                $almacenProyecto = null;
+                if ($trabajador->proyecto_id) {
+                    $almacenProyecto = Almacen::where('proyecto_id', $trabajador->proyecto_id)
+                        ->where('tipo_almacen', 'OPERATIVO')
+                        ->where('activo', true)
+                        ->first(['id', 'nombre']);
+                }
 
-                // Serializar trabajador manualmente para incluir almacen_id
+                $eppItemsDisponibles = $almacenProyecto
+                    ? $this->getEppDisponiblesPorAlmacen($almacenProyecto->id)
+                    : [];
+
                 $trabajador = [
                     'id'               => $trabajador->id,
                     'nombres'          => $trabajador->nombres,
@@ -124,36 +122,51 @@ class EntregaController extends Controller
                     'cargo_laboral'    => $trabajador->cargoLaboral,
                     'proyecto'         => $trabajador->proyecto,
                     'proyecto_id'      => $trabajador->proyecto_id,
-                    // Nuevo: almacen auto-detectado del proyecto
                     'almacen_id'       => $almacenProyecto?->id,
                     'almacen_nombre'   => $almacenProyecto?->nombre,
+                    'sin_proyecto'     => !$trabajador->proyecto_id,
+                    'sin_almacen'      => $trabajador->proyecto_id && !$almacenProyecto,
                 ];
             }
         }
 
-        // ── FIX 3: Estructura agrupada por EPP item para el selector de dos pasos ──
-        // Antes: skusDisponibles era una lista plana de SKUs con EPP+talla mezclados.
-        // Ahora: eppItemsDisponibles agrupa los SKUs bajo su EPP item.
-        // El frontend usa: paso 1 = seleccionar EPP, paso 2 = seleccionar talla del EPP.
-        $eppItemsDisponibles = EppItem::with([
+        return Inertia::render('Entregas/Index', [
+            'trabajador'          => $trabajador,
+            'candidatos'          => $candidatos,
+            'eppItemsDisponibles' => $eppItemsDisponibles,
+            'historial'           => $historial,
+            'years'               => range(now()->year, now()->year - 5),
+            'filters'             => ['search' => $search, 'year' => $year],
+        ]);
+    }
+
+    private function getEppDisponiblesPorAlmacen(int $almacenId): array
+    {
+        return EppItem::with([
             'categoria:id,nombre',
             'skus' => fn ($q) => $q
+                ->where('activo', true)
                 ->with([
                     'talla:id,codigo,nombre',
                     'stocks' => fn ($q2) => $q2
+                        ->where('almacen_id', $almacenId)
                         ->where('estado_stock', 'DISPONIBLE')
-                        ->where('cantidad_actual', '>', 0)
-                        ->with('almacen:id,nombre,proyecto_id'),
+                        ->where('cantidad_actual', '>', 0),
                 ])
                 ->whereHas('stocks', fn ($q2) =>
-                    $q2->where('estado_stock', 'DISPONIBLE')->where('cantidad_actual', '>', 0)
+                    $q2->where('almacen_id', $almacenId)
+                       ->where('estado_stock', 'DISPONIBLE')
+                       ->where('cantidad_actual', '>', 0)
                 ),
         ])
         ->where('activo', true)
         ->whereHas('skus', fn ($q) =>
-            $q->whereHas('stocks', fn ($q2) =>
-                $q2->where('estado_stock', 'DISPONIBLE')->where('cantidad_actual', '>', 0)
-            )
+            $q->where('activo', true)
+              ->whereHas('stocks', fn ($q2) =>
+                $q2->where('almacen_id', $almacenId)
+                   ->where('estado_stock', 'DISPONIBLE')
+                   ->where('cantidad_actual', '>', 0)
+              )
         )
         ->orderBy('nombre')
         ->get()
@@ -170,32 +183,16 @@ class EntregaController extends Controller
                 'stock_total'  => $sku->stocks->sum('cantidad_actual'),
                 'stocks'       => $sku->stocks->map(fn ($s) => [
                     'almacen_id'      => $s->almacen_id,
-                    'almacen_nombre'  => $s->almacen?->nombre,
-                    'proyecto_id'     => $s->almacen?->proyecto_id,
                     'cantidad_actual' => $s->cantidad_actual,
                 ])->values(),
             ])->values(),
         ])
-        ->values();
-
-        $years = range(now()->year, now()->year - 5);
-
-        return Inertia::render('Entregas/Index', [
-            'trabajador'          => $trabajador,
-            'candidatos'          => $candidatos,        // NUEVO
-            'eppItemsDisponibles' => $eppItemsDisponibles, // renombrado y reestructurado
-            'historial'           => $historial,
-            'years'               => $years,
-            'filters'             => ['search' => $search, 'year' => $year],
-        ]);
+        ->values()
+        ->toArray();
     }
 
     public function store(Request $request): RedirectResponse
     {
-        // ── FIX 4: almacen_origen_id ahora viene en la raíz del request ──
-        // Antes: el frontend lo enviaba dentro de cada item → $request->almacen_origen_id era null
-        // → la validación fallaba silenciosamente y la entrega nunca se creaba.
-        // Ahora: un solo almacén por entrega (nivel raíz), auto-detectado del proyecto del trabajador.
         $request->validate([
             'trabajador_id'          => 'required|exists:trabajadores,id',
             'almacen_origen_id'      => 'required|exists:almacenes,id',
@@ -206,7 +203,19 @@ class EntregaController extends Controller
             'items.*.motivo_entrega' => 'required|in:INICIAL,REPOSICION_DESGASTE,REPOSICION_PERDIDA',
         ]);
 
-        DB::transaction(function () use ($request) {
+        $almacen = Almacen::findOrFail($request->almacen_origen_id);
+        if ($almacen->tipo_almacen !== 'OPERATIVO') {
+            throw ValidationException::withMessages([
+                'almacen_origen_id' => 'Solo se puede entregar EPP desde almacenes operativos.',
+            ]);
+        }
+
+        // Almacén de segregación — se busca una sola vez fuera del loop
+        $almacenSegregacion = Almacen::where('tipo_almacen', 'SEGREGACION')
+            ->where('activo', true)
+            ->first();
+
+        DB::transaction(function () use ($request, $almacenSegregacion) {
             $trabajador = Trabajador::findOrFail($request->trabajador_id);
             $tipoSalida = MovimientoTipo::where('codigo', 'SALIDA_ENTREGA')->firstOrFail();
 
@@ -221,11 +230,14 @@ class EntregaController extends Controller
             ]);
 
             foreach ($request->items as $index => $item) {
-                $cantidad = (int) $item['cantidad'];
+                $cantidad  = (int) $item['cantidad'];
+                $motivo    = $item['motivo_entrega'];
+                $eppSkuId  = $item['epp_sku_id'];
 
+                // ── 1. Verificar y descontar stock ────────────────────────────
                 $stock = StockAlmacen::where([
                     'almacen_id'   => $request->almacen_origen_id,
-                    'epp_sku_id'   => $item['epp_sku_id'],
+                    'epp_sku_id'   => $eppSkuId,
                     'estado_stock' => 'DISPONIBLE',
                 ])->lockForUpdate()->first();
 
@@ -238,20 +250,22 @@ class EntregaController extends Controller
                 $saldoAnterior = $stock->cantidad_actual;
                 $stock->decrement('cantidad_actual', $cantidad);
 
+                // ── 2. Crear detalle ──────────────────────────────────────────
                 $detalle = EppEntregaDetalle::create([
                     'entrega_id'     => $entrega->id,
-                    'epp_sku_id'     => $item['epp_sku_id'],
+                    'epp_sku_id'     => $eppSkuId,
                     'cantidad'       => $cantidad,
-                    'motivo_entrega' => $item['motivo_entrega'],
+                    'motivo_entrega' => $motivo,
                     'observaciones'  => $item['observaciones'] ?? null,
                 ]);
 
+                // ── 3. Kardex: movimiento de salida ───────────────────────────
                 $movSalida = MovimientoEpp::create([
                     'fecha_movimiento'   => $entrega->fecha_entrega,
                     'almacen_id'         => $request->almacen_origen_id,
                     'proyecto_id'        => $trabajador->proyecto_id,
                     'trabajador_id'      => $request->trabajador_id,
-                    'epp_sku_id'         => $item['epp_sku_id'],
+                    'epp_sku_id'         => $eppSkuId,
                     'tipo_movimiento_id' => $tipoSalida->id,
                     'naturaleza'         => 'SALIDA',
                     'estado_stock'       => 'DISPONIBLE',
@@ -265,22 +279,158 @@ class EntregaController extends Controller
 
                 $detalle->update(['movimiento_salida_id' => $movSalida->id]);
 
+                // ════════════════════════════════════════════════════════════
+                // ── 4. Lógica de REPOSICIÓN: cerrar custodia anterior ────────
+                // ════════════════════════════════════════════════════════════
+                $custodiaAfectadaId = null;
+                $incidenciaId       = null;
+
+                if (in_array($motivo, ['REPOSICION_DESGASTE', 'REPOSICION_PERDIDA'])) {
+
+                    $eppSku    = EppSku::find($eppSkuId);
+                    $eppItemId = $eppSku?->epp_item_id;
+
+                    if ($eppItemId) {
+                        // Obtener todas las custodias activas del mismo EPP item
+                        $custodiasActivas = TrabajadorEppCustodia::where('trabajador_id', $request->trabajador_id)
+                            ->where('estado', 'ACTIVO')
+                            ->whereHas('sku', fn ($q) => $q->where('epp_item_id', $eppItemId))
+                            ->orderByDesc('fecha_entrega')
+                            ->get();
+
+                        foreach ($custodiasActivas as $custodiaAnterior) {
+
+                            $cantidadPendiente = $custodiaAnterior->cantidad_entregada
+                                - $custodiaAnterior->cantidad_devuelta
+                                - $custodiaAnterior->cantidad_perdida;
+
+                            // ── REPOSICION_DESGASTE ───────────────────────────
+                            // EPP usado pero físicamente devuelto → va a segregación
+                            if ($motivo === 'REPOSICION_DESGASTE') {
+                                $custodiaAnterior->update([
+                                    'estado'            => 'DEVUELTO_DANADO',
+                                    'fecha_cierre'      => now(),
+                                    'cantidad_devuelta' => $custodiaAnterior->cantidad_devuelta + $cantidadPendiente,
+                                ]);
+
+                                if ($almacenSegregacion && $cantidadPendiente > 0) {
+                                    $this->enviarASegregacion(
+                                        custodia:           $custodiaAnterior,
+                                        cantidadPendiente:  $cantidadPendiente,
+                                        almacenSegregacion: $almacenSegregacion,
+                                        trabajadorId:       $request->trabajador_id,
+                                    );
+                                }
+                            }
+
+                            // ── REPOSICION_PERDIDA ────────────────────────────
+                            // EPP perdido → NO va a segregación, genera incidencia
+                            // Según tu regla de negocio: pérdida no genera cargo,
+                            // solo genera un registro de incidencia (sin cargo económico)
+                            if ($motivo === 'REPOSICION_PERDIDA') {
+                                $custodiaAnterior->update([
+                                    'estado'           => 'PERDIDO',
+                                    'fecha_cierre'     => now(),
+                                    'cantidad_perdida' => $custodiaAnterior->cantidad_perdida + $cantidadPendiente,
+                                ]);
+
+                                // ✅ Crear registro en incidencias_epp
+                                $incidencia = IncidenciaEpp::create([
+                                    'fecha_incidencia'  => now(),
+                                    'trabajador_id'     => $request->trabajador_id,
+                                    'proyecto_id'       => $trabajador->proyecto_id,
+                                    'custodia_id'       => $custodiaAnterior->id,
+                                    'epp_sku_id'        => $custodiaAnterior->epp_sku_id,
+                                    'tipo_incidencia'   => 'PERDIDA',
+                                    'cantidad'          => $cantidadPendiente,
+                                    'genera_reposicion' => true,
+                                    'descripcion'       => $request->observaciones
+                                        ?? 'Reposición por pérdida registrada durante entrega.',
+                                    'estado'            => 'REGISTRADA',
+                                    'user_id'           => Auth::id(),
+                                ]);
+
+                                // Guardar el id de la primera incidencia creada
+                                if (!$incidenciaId) {
+                                    $incidenciaId = $incidencia->id;
+                                }
+                            }
+
+                            // Guardar el id de la primera custodia afectada
+                            if (!$custodiaAfectadaId) {
+                                $custodiaAfectadaId = $custodiaAnterior->id;
+                            }
+                        }
+                    }
+                }
+
+                // ── 5. Actualizar detalle con trazabilidad completa ───────────
+                $updateDetalle = [];
+                if ($custodiaAfectadaId) $updateDetalle['custodia_afectada_id'] = $custodiaAfectadaId;
+                if ($incidenciaId)       $updateDetalle['incidencia_id']        = $incidenciaId;
+                if (!empty($updateDetalle)) $detalle->update($updateDetalle);
+
+                // ── 6. Crear NUEVA custodia activa ────────────────────────────
                 TrabajadorEppCustodia::create([
                     'trabajador_id'      => $request->trabajador_id,
                     'entrega_detalle_id' => $detalle->id,
-                    'epp_sku_id'         => $item['epp_sku_id'],
+                    'epp_sku_id'         => $eppSkuId,
                     'cantidad_entregada' => $cantidad,
+                    'cantidad_devuelta'  => 0,
+                    'cantidad_perdida'   => 0,
                     'fecha_entrega'      => $entrega->fecha_entrega,
                     'estado'             => 'ACTIVO',
                 ]);
             }
         });
 
-        // Redirigir al historial del trabajador recién atendido
         $fotocheck = Trabajador::find($request->trabajador_id)?->codigo_fotocheck;
         return redirect()
             ->route('entregas.index', ['search' => $fotocheck, 'year' => now()->year])
             ->with('success', 'Entrega registrada correctamente.');
+    }
+
+    /**
+     * Envía unidades dañadas al almacén de segregación.
+     * Solo se llama para REPOSICION_DESGASTE.
+     */
+    private function enviarASegregacion(
+        TrabajadorEppCustodia $custodia,
+        int $cantidadPendiente,
+        Almacen $almacenSegregacion,
+        int $trabajadorId
+    ): void {
+        $tipoDevolucion = MovimientoTipo::where('codigo', 'DEVOLUCION_DESGASTE')->first();
+        if (!$tipoDevolucion) return;
+
+        $stockSeg = StockAlmacen::firstOrCreate(
+            [
+                'almacen_id'   => $almacenSegregacion->id,
+                'epp_sku_id'   => $custodia->epp_sku_id,
+                'estado_stock' => 'DANADO',
+            ],
+            ['cantidad_actual' => 0, 'stock_minimo' => 0]
+        );
+
+        $saldoAnterior = $stockSeg->cantidad_actual;
+        $stockSeg->increment('cantidad_actual', $cantidadPendiente);
+
+        MovimientoEpp::create([
+            'fecha_movimiento'   => now(),
+            'almacen_id'         => $almacenSegregacion->id,
+            'trabajador_id'      => $trabajadorId,
+            'epp_sku_id'         => $custodia->epp_sku_id,
+            'tipo_movimiento_id' => $tipoDevolucion->id,
+            'naturaleza'         => 'ENTRADA',
+            'estado_stock'       => 'DANADO',
+            'cantidad'           => $cantidadPendiente,
+            'saldo_anterior'     => $saldoAnterior,
+            'saldo_nuevo'        => $stockSeg->cantidad_actual,
+            'documento_tipo'     => 'DEVOLUCION',
+            'documento_id'       => $custodia->id,
+            'observaciones'      => 'Reposición por desgaste — enviado automáticamente a segregación',
+            'user_id'            => Auth::id(),
+        ]);
     }
 
     public function show(EppEntrega $entrega): Response

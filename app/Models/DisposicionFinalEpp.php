@@ -6,32 +6,27 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class EppTransferencia extends Model
+class DisposicionFinalEpp extends Model
 {
-    protected $table = 'epp_transferencias';
+    protected $table = 'disposicion_final_epp';
 
     protected $fillable = [
-        'fecha_transferencia',
+        'fecha_baja',
         'almacen_origen_id',
-        'almacen_destino_id',
         'motivo',
+        'acta_numero',
         'observaciones',
-        'estado',
+        'estado',        // BORRADOR | CONFIRMADO
         'user_id',
     ];
 
     protected $casts = [
-        'fecha_transferencia' => 'datetime',
+        'fecha_baja' => 'datetime',
     ];
 
     public function almacenOrigen(): BelongsTo
     {
         return $this->belongsTo(Almacen::class, 'almacen_origen_id');
-    }
-
-    public function almacenDestino(): BelongsTo
-    {
-        return $this->belongsTo(Almacen::class, 'almacen_destino_id');
     }
 
     public function user(): BelongsTo
@@ -41,6 +36,6 @@ class EppTransferencia extends Model
 
     public function detalles(): HasMany
     {
-        return $this->hasMany(EppTransferenciaDetalle::class, 'transferencia_id');
+        return $this->hasMany(DisposicionFinalEppDetalle::class, 'baja_id');
     }
 }

@@ -35,6 +35,7 @@ class MovimientoEpp extends Model
         'cantidad' => 'integer',
         'saldo_anterior' => 'integer',
         'saldo_nuevo' => 'integer',
+        'documento_id' => 'integer',
     ];
 
     public function almacen(): BelongsTo

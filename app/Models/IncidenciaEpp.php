@@ -25,7 +25,7 @@ class IncidenciaEpp extends Model
 
     protected $casts = [
         'fecha_incidencia' => 'datetime',
-        'genra_reposicion' => 'boolean',
+        'genera_reposicion' => 'boolean',
         'cantidad' => 'integer'
     ];
 
@@ -52,5 +52,9 @@ class IncidenciaEpp extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+    public function entregaDetalle(): BelongsTo
+    {
+        return $this->belongsTo(EppEntregaDetalle::class, 'id', 'incidencia_id');
     }
 }

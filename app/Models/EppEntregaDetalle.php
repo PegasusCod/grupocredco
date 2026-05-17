@@ -16,7 +16,7 @@ class EppEntregaDetalle extends Model
         'cantidad',
         'motivo_entrega',
         'custodia_afectada_id',
-        'incidencias_id',
+        'incidencia_id',
         'movimientos_salida_id',
         'movimientos_entrada_seg_id',
         'observaciones',
@@ -43,7 +43,7 @@ class EppEntregaDetalle extends Model
 
     public function incidencia(): BelongsTo
     {
-        return $this->belongsTo(IncidenciaEpp::class);
+        return $this->belongsTo(IncidenciaEpp::class, 'incidencia_id');
     }
 
     public function custodia(): HasOne
